@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const {gzipSync}=require('node:zlib');
 const simulatePe = require('./pe20-engine.cjs');
+const lab=require('./strategy-lab.cjs');
 const longWindow = process.argv.includes('--20');
 const start = longWindow ? '2006-11-21' : '2016-11-21';
 const end = '2026-11-20';
@@ -111,7 +112,23 @@ function run([name,index,code]) {
     const absolute=simulatePe(rows,last.adjClose,lastSignal,endExclusive,cost,{kind:'absolute',buy,sell});
     assert(absolute.duration<=absolute.eligibleDays&&absolute.eligibleSessions<=quotes.length);
     absoluteResults.push({code, thresholds, ...absolute});
-    researchInputs.push({name,code,rows,lastSignal,peHistory,closes,ranks3,ranks10});
+    const withPriceSignal=(row,signal)=>{
+      assert(signal?.value>0&&row[7]>0,'Index quote missing '+index+' '+row[0]);
+      return [...row.slice(0,3),signal.date,valuationByDay.get(signal.date)?.pe??null,null,signal.value,...row.slice(7)];
+    };
+    let priceCursor=-1;
+    const priceRows=rows.map(row=>{
+      while(closes[priceCursor+1]?.date<row[0]) priceCursor++;
+      return withPriceSignal(row,closes[priceCursor]);
+    });
+    const monthEnds=closes.filter((q,i)=>q.date.slice(0,7)!==closes[i+1]?.date.slice(0,7));
+    let monthCursor=-1;
+    const monthRows=rows.map(row=>{
+      const currentMonth=row[0].slice(0,7);
+      while(monthEnds[monthCursor+1]?.date.slice(0,7)<currentMonth) monthCursor++;
+      return withPriceSignal(row,monthEnds[monthCursor]);
+    });
+    researchInputs.push({name,code,rows,priceRows,monthRows,lastSignal,peHistory,closes,ranks3,ranks10});
   }
   const weekly = new Map();
   for(const [date,row] of indexDays){
@@ -133,7 +150,6 @@ if(longWindow){
   const lookbacks=Array.from({length:10},(_,i)=>i+1);
   const training=researchInputs.filter(a=>a.rows[0][0]<=trainStart);
   const evaluation=researchInputs.filter(a=>a.rows[0][0]<=testStart);
-  const candidates=[3,5,10].flatMap(years=>[0.35,0.5].flatMap(buy=>[100,200].map(length=>({years,buy,length}))));
   for(const a of researchInputs){
     a.ranks=Object.fromEntries(lookbacks.map(years=>[
       years,years===3?a.ranks3:years===10?a.ranks10:rollingRank(a.peHistory,years,years===1?200:240)
@@ -158,10 +174,12 @@ if(longWindow){
     });
     return {kind:'trend',buy:c.buy,sell:0.9,trend};
   }
+  const rowsFor=(a,rule)=>rule.flags?(rule.cadence==='month'?a.monthRows:a.priceRows):a.rows;
   function evaluate(a,rule,from,until,fee=cost){
-    const rows=a.rows.filter(r=>r[0]>=from&&r[0]<until);
+    const rows=rowsFor(a,rule).filter(r=>r[0]>=from&&r[0]<until);
     const m=simulatePe(rows,rows.at(-1)[8],a.lastSignal,until,fee,rule);
-    return {annual:m.annual,drawdown:m.drawdown,holdAnnual:(1+m.hold)**(365.25/days(until,rows[0][0]))-1};
+    return {annual:m.annual,drawdown:m.drawdown,holdAnnual:(1+m.hold)**(365.25/days(until,rows[0][0]))-1,
+      exposure:m.fullSessions/rows.length,entries:m.trades.length};
   }
   function withLookback(a,years){
     if(years===3) return a;
@@ -170,11 +188,6 @@ if(longWindow){
       [date,open,adjOpen,signal,pe,byDate.get(signal)??null,...prices]);
     return {rows,lastSignal:{...a.lastSignal,rank:byDate.get(a.lastSignal.date)??null}};
   }
-  for(const c of candidates){
-    const returns=training.map(a=>evaluate(a,trendRule(a,c),trainStart,trainEnd).annual).sort((a,b)=>a-b);
-    c.score=quantile(returns,0.5);
-  }
-  const chosen=candidates.sort((a,b)=>b.score-a.score)[0];
   const patientCandidates=[3,5,10].flatMap(years=>[0.20,0.35].flatMap(buy=>[100,200].flatMap(length=>
     [0.95,0.99].map(hardExit=>({years,buy,length,hardExit})))));
   const patientRule=(a,c)=>({...trendRule(a,c),kind:'patient',sell:0.8,hardExit:c.hardExit});
@@ -183,6 +196,16 @@ if(longWindow){
   }
   patientCandidates.sort((a,b)=>b.score-a.score);
   const patient=patientCandidates[0];
+  const prepared=new Map(researchInputs.map(a=>[a.code,lab.prepare(a)]));
+  const selectedLab=lab.spec.map(spec=>{
+    const candidates=spec.options.map(config=>{
+      const rules=new Map(researchInputs.map(a=>[a.code,spec.rule(prepared.get(a.code),config)]));
+      const score=training.reduce((sum,a)=>sum+evaluate(a,rules.get(a.code),trainStart,trainEnd).annual,0)/training.length;
+      return {rules,score,summary:spec.summary(config)};
+    }).sort((a,b)=>b.score-a.score);
+    return {id:spec.id,name:spec.name,source:spec.source,...candidates[0],
+      candidates:candidates.map(({score,summary})=>({score,summary}))};
+  });
   const testAbsolute=a=>{
     const pe=a.peHistory.filter(p=>p.date>=start&&p.date<trainEnd).map(p=>p.value).sort((a,b)=>a-b);
     return pe.length>=240?{kind:'absolute',buy:quantile(pe,0.2),sell:quantile(pe,0.8)}:null;
@@ -190,22 +213,26 @@ if(longWindow){
   result.strategies=[
     {id:'percentile',name:'策略1-PE分位',defaultLookback:3},
     {id:'absolute',name:'策略2-PE绝对值',summary:'各指数近二十年日度 PE 的第 20、80 百分位作固定倍数。PE ≤买入倍数时满仓，≥卖出倍数时清仓。',results:absoluteResults},
-    {id:'trend',name:'策略3-估值与趋势',summary:'每周复核。滚动 '+chosen.years+' 年 PE 分位 ≤'+Math.round(chosen.buy*100)+'% 且收盘高于 '+chosen.length+' 日均线时满仓，PE 分位 ≥90% 或收盘低于均线 3% 时清仓。',
-      results:researchInputs.map(a=>({code:a.code,...simulatePe(a.rows,a.rows.at(-1)[8],a.lastSignal,endExclusive,cost,trendRule(a,chosen))}))},
-    {id:'patient',name:'策略4-低估买入、趋势卖出',lookback:patient.years,
+    {id:'patient',name:'策略3-低估买入、趋势卖出',lookback:patient.years,
       summary:'每周复核。滚动 '+patient.years+' 年 PE 分位 ≤'+Math.round(patient.buy*100)+'% 时满仓；分位 ≥80% 且收盘低于 '+patient.length+' 日均线时清仓，分位 ≥'+Math.round(patient.hardExit*100)+'% 时直接清仓。',
       results:researchInputs.map(a=>({code:a.code,...simulatePe(a.rows,a.rows.at(-1)[8],a.lastSignal,endExclusive,cost,patientRule(a,patient))}))},
+    ...selectedLab.map(({id,name,source,summary,rules})=>({id,name,source,summary,
+      results:researchInputs.map(a=>{
+        const rule=rules.get(a.code), rows=rowsFor(a,rule);
+        return {code:a.code,...simulatePe(rows,rows.at(-1)[8],a.lastSignal,endExclusive,cost,rule)};
+      })})),
   ];
-  result.study={trainStart,trainEnd,testStart,end,training:training.length,candidates,chosen,patientCandidates,patient,rows:evaluation.map(a=>{
+  result.study={trainStart,trainEnd,testStart,end,training:training.length,patientCandidates,patient,
+    lab:selectedLab.map(({id,candidates})=>({id,candidates})),rows:evaluation.map(a=>{
     const fixed=testAbsolute(a);
     const absolute=fixed?evaluate(a,fixed,testStart,endExclusive):null;
     return {name:a.name,code:a.code,absolute,
       percentile:evaluate(a,percentileRule,testStart,endExclusive),
-      trend:evaluate(a,trendRule(a,chosen),testStart,endExclusive),
-      patient:evaluate(a,patientRule(a,patient),testStart,endExclusive)};
+      patient:evaluate(a,patientRule(a,patient),testStart,endExclusive),
+      ...Object.fromEntries(selectedLab.map(m=>[m.id,evaluate(a,m.rules.get(a.code),testStart,endExclusive)]))};
   })};
   const common=evaluation.filter(a=>testAbsolute(a));
-  result.study.patientChecks=[
+  result.study.checks=[
     {label:'后段检验',from:testStart,until:endExclusive,fee:cost},
     {label:'后段检验，较高交易成本',from:testStart,until:endExclusive,fee:0.0015},
     {label:'后段前半',from:testStart,until:'2024-01-01',fee:cost},
@@ -214,11 +241,13 @@ if(longWindow){
     const rows=common.map(a=>[
       evaluate(a,percentileRule,from,until,fee),
       evaluate(a,testAbsolute(a),from,until,fee),
-      evaluate(a,trendRule(a,chosen),from,until,fee),
       evaluate(a,patientRule(a,patient),from,until,fee),
+      ...selectedLab.map(m=>evaluate(a,m.rules.get(a.code),from,until,fee)),
     ]);
     return {label,from,through:new Date(Date.parse(until)-86400000).toISOString().slice(0,10),fee,count:rows.length,
-      annual:rows[0].map((_,i)=>rows.reduce((sum,r)=>sum+r[i].annual,0)/rows.length)};
+      metrics:rows[0].map((_,i)=>Object.fromEntries(['annual','drawdown','exposure','entries'].map(key=>[
+        key,rows.reduce((sum,r)=>sum+r[i][key],0)/rows.length
+      ])))};
   });
   result.tuningFields=tuningFields;
   if(process.argv.includes('--tuning')){

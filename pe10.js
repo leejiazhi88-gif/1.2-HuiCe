@@ -31,11 +31,13 @@ renderTrades();
 const filter=el('filter');
 filter.insertAdjacentHTML('beforeend',assets.map(a=>'<option value="'+code(a)+'">'+a.name+' · '+code(a)+'</option>').join(''));
 const picked=()=>assets.filter(a=>!filter.value||code(a)===filter.value);
-const tradeCell=t=>t.date+'<span class="date-extra">信号 '+t.signal+' · PE '+t.pe.toFixed(2)+(currentStrategy?.id==='absolute'?'':' · 分位 '+metric(t.rank))+'</span>'+
+const tradeCell=t=>t.date+'<span class="date-extra">信号 '+t.signal+' · PE '+(t.pe?.toFixed(2)??'暂无')+(t.rank==null||currentStrategy?.id==='absolute'?'':' · 分位 '+metric(t.rank))+'</span>'+
   (t.average?'<span class="date-extra">指数均线 '+t.average.toFixed(2)+' 点</span>':'')+
+  (t.detail?'<span class="date-extra">'+t.detail+'</span>':'')+
   (long?'<span class="date-extra">信号日收盘 '+t.signalClose.toFixed(2)+' 点 · 成交日指数开盘 '+t.indexOpen.toFixed(2)+' 点</span>':'')+
   '<span class="date-extra">ETF 开盘 '+t.open.toFixed(3)+' 元</span>';
 function renderTrades(){
+  if(el('trades').hidden) return;
   const data=picked();
   table('tradeTable',['指数 / ETF','买入成交','卖出成交','满仓自然日','满仓交易日','本轮收益'],data.flatMap(a=>a.trades.map((t,i)=>
     '<tr id="trade-'+code(a)+'-'+i+'" tabindex="-1"><th scope="row">'+title(a)+'</th><td>'+tradeCell(t.buy)+'</td><td>'+(t.sell?tradeCell(t.sell):'<span class="pending">期末仍持有</span>')+'</td><td>'+t.duration+'</td><td>'+t.sessions+'</td><td>'+signed(t.total)+'</td></tr>')));
@@ -44,6 +46,7 @@ function renderTrades(){
   el('status').textContent=pending.length?pending.join(' '):'成交日按开盘计算，未平仓一轮的收益按期末收盘价估值。';
 }
 filter.addEventListener('change',renderTrades);
+window.addEventListener('pe-panel-opened',e=>{if(e.detail==='trades')renderTrades();});
 window.addEventListener('pe-strategy-change',e=>{
   assets=e.detail.assets;
   currentStrategy=e.detail.strategy;
@@ -53,6 +56,7 @@ el('timeline').addEventListener('click',e=>{
   const key=e.target.closest('button')?.dataset.key;
   if(!key) return;
   filter.value=key.split('-')[0];
+  window.dispatchEvent(new CustomEvent('pe-open-panel',{detail:'trades'}));
   renderTrades();
   const row=el('trade-'+key);
   row.classList.add('trade-highlight');

@@ -16,4 +16,8 @@
 .lookback-slider button{flex:0 0 34px;height:34px;padding:0;font-size:1.15rem;line-height:1}
 .lookback-slider button:disabled{opacity:.4;cursor:default;border-color:var(--edge)}
 #lookbackControl output{font-variant-numeric:tabular-nums}
+.module-controls{display:flex;gap:8px;overflow-x:auto;padding:10px 3px 16px}
+.module-controls button{white-space:nowrap}
+.module-controls button[aria-expanded=true]{color:var(--gold);border-color:var(--gold)}
+#markerChoices{max-height:102px;overflow:auto;padding:3px}
 @media(max-width:660px){.strategy-bar{grid-template-columns:1fr;gap:8px}}

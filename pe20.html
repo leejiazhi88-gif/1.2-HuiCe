@@ -6,17 +6,17 @@
 <title>二十年 ETF 策略回测 · 指数点位与买卖信号</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="pe10.css">
-<link rel="stylesheet" href="pe20.css?v=7">
-<script defer src="pe20-data.js?v=8"></script>
-<script defer src="pe10.js?v=6"></script>
-<script defer src="pe20.js?v=8"></script>
+<link rel="stylesheet" href="pe20.css?v=9">
+<script defer src="pe20-data.js?v=9"></script>
+<script defer src="pe10.js?v=9"></script>
+<script defer src="pe20.js?v=9"></script>
 </head>
 <body>
-<header><div class="shell bar"><a href="index.html">宽基 ETF <small> / 价值投资回测</small></a><nav><a href="#charts">策略与图表</a><a href="#exposure">满仓与收益</a><a href="#comparison">后段检验</a></nav></div></header>
+<header><div class="shell bar"><a href="index.html">宽基 ETF <small> / 价值投资回测</small></a><nav><a href="#charts">策略与图表</a><a href="#exposure">满仓与收益</a></nav></div></header>
 <main class="shell" id="charts">
 <div class="strategy-bar">
   <label>买卖策略<select id="strategySelect"></select></label>
-  <div><p id="strategySummary" aria-live="polite"></p><p id="strategyDetail" class="muted"></p></div>
+  <div><p id="strategySummary" aria-live="polite"></p><p id="strategyDetail" class="muted"></p><a id="strategySource" class="muted" hidden></a></div>
   <div id="lookbackControl">
     <div>
       <label for="lookbackYears"><span id="lookbackLabel">PE 回看期</span> <output id="lookbackValue" for="lookbackYears">3 年</output></label>
@@ -66,40 +66,53 @@
 <p class="muted" id="peHistoryNote" hidden></p>
 <div class="marker-buttons" id="markerChoices" aria-label="选择买卖信号"></div>
 <p id="markerInfo" aria-live="polite"></p>
-<p class="muted">曲线取每周最后一个交易日。移入任一图同步读数，移出后恢复最新值。买卖标记对应日度信号，阴影从 ETF 成交开始。</p>
+<p class="muted">曲线取每周最后一个交易日。移入任一图同步读数，移出后恢复最新值。买卖标记对应实际信号日，阴影从 ETF 成交开始。</p>
 </div>
 </section>
 <section id="exposure">
 <h2>满仓时间与收益</h2>
 <div class="legend"><span><i class="swatch holding"></i>满仓</span><span><i class="swatch cash"></i>空仓</span><span><i class="swatch unavailable"></i>未上市或估值预热</span></div>
 <div class="timeline" id="timeline"></div>
-<p class="muted">点击满仓区段可跳转到对应买卖记录。二十年占比分母统一为 7,305 个自然日。可执行期从 ETF 有实际行情且估值样本达到门槛开始。</p>
+<p class="muted">点击满仓区段可跳转到对应买卖记录。二十年占比分母统一为 7,305 个自然日。可执行期从 ETF 有实际行情且所选策略所需数据就绪时开始。</p>
 <div class="table-wrap" tabindex="0" aria-label="九只ETF持仓与收益对比"><table id="summary"></table></div>
 </section>
-<section id="trades">
+<div class="module-controls" aria-label="展开回测详情">
+  <button type="button" aria-controls="trades" aria-expanded="false">逐轮买卖明细</button>
+  <button type="button" aria-controls="comparison" aria-expanded="false">策略对比</button>
+  <button type="button" aria-controls="method" aria-expanded="false">回测口径</button>
+</div>
+<section id="trades" hidden>
 <div class="section-head"><h2>逐轮买卖明细</h2><div class="controls trade-controls"><label>ETF<select id="filter"><option value="">全部</option></select></label><button id="export" type="button">下载买卖明细</button></div></div>
 <p class="muted" id="status"></p>
 <div class="table-wrap" tabindex="0" aria-label="买卖成交及指数点位"><table id="tradeTable"></table></div>
 </section>
-<section id="comparison">
-<h2>后段检验</h2>
+<section id="comparison" hidden>
+<h2>策略对比</h2>
 <p class="muted" id="studyNote"></p>
 <p id="studyResult"></p>
-<p id="patientResult"></p>
-<div class="table-wrap" tabindex="0" aria-label="四套策略后段年化收益和回撤"><table id="studyTable"></table></div>
+<div class="table-wrap" tabindex="0" aria-label="十套策略后段汇总"><table id="strategyScores"></table></div>
+<h3>逐指数后段年化与回撤</h3>
+<div class="table-wrap" tabindex="0" aria-label="十套策略逐指数年化收益和回撤"><table id="studyTable"></table></div>
+<details>
+<summary>逐指数全窗口累计收益</summary>
+<p class="muted">每只 ETF 用自身可交易的历史。此表沿用策略 2 主图的全样本阈值，阈值包含回测早期之后的数据。</p>
+<div class="table-wrap" tabindex="0" aria-label="九只ETF十套策略累计收益"><table id="fullStudyTable"></table></div>
+</details>
 <details open>
 <summary>默认参数的分段与交易成本检验</summary>
-<p class="muted">仅用四套策略都有数据的 7 只 ETF，分别算每只的年化再取平均。每段独立从现金开始。</p>
-<div class="table-wrap" tabindex="0" aria-label="默认参数分段与交易成本检验"><table id="patientChecks"></table></div>
+<p class="muted">使用默认参数下十套策略都有结果的 7 只 ETF。分别计算每只 ETF 的年化后取平均，每段独立从现金开始。</p>
+<div class="table-wrap" tabindex="0" aria-label="默认参数分段与交易成本检验"><table id="studyChecks"></table></div>
 </details>
-<details><summary>查看策略 3 的候选规则</summary><div class="table-wrap" tabindex="0" aria-label="策略3候选规则"><table id="candidateTable"></table></div></details>
-<details><summary>查看策略 4 的候选规则</summary><div class="table-wrap" tabindex="0" aria-label="策略4候选规则"><table id="patientCandidates"></table></div></details>
+<details><summary>查看候选规则和研究来源</summary>
+  <div class="table-wrap" tabindex="0" aria-label="候选规则"><table id="studyCandidates"></table></div>
+</details>
 </section>
-<section id="method">
+<section id="method" hidden>
 <h2>回测口径</h2>
 <p>策略 1 的滚动分位使用当时可取得的历史，1 年窗口至少需要 200 个观测，2–10 年窗口至少需要 240 个。策略 2 主图从回测截止日往前取样来固定阈值，可能包含早期买卖信号之后的数据；后段检验用相同年数从 2020 年末往前取样。买卖分位均以 5 个百分点为一档。</p>
 <p>图中标记使用触发当日的指数收盘与 PE。成交明细同时给出下一可交易日指数开盘和 ETF 开盘。最大回撤用日收盘净值计算。</p>
 <p>策略日终判断、下一可交易日开盘模拟成交。收益使用 ETF 复权行情，单边成本 0.05%，现金收益为零。上市以前可以查看指数图，策略从该 ETF 的可执行期开始。历史估值使用供应商现有序列，可能有事后修订。 <a href="https://tushare.pro/document/2?doc_id=95">指数点位来源</a> · <a href="https://tushare.pro/document/2?doc_id=128">估值来源</a></p>
+<p>策略 4–10 借鉴文献，在这里统一改成用指数信号在对应 ETF 与现金之间切换。文献原有的做空、杠杆、期货、跨资产配置和仓位缩放都不参与本页回测。</p>
 <p>项目 1 的上证综指、深证成指分别对应富国 510210、南方 159903。项目 6 的科创综指对应华夏 589000，使用项目 6 收录的中证指数官方滚动 PE。 <a href="https://github.com/leejiazhi88-gif/1-BigA-total">项目 1</a> · <a href="https://github.com/leejiazhi88-gif/6-Bili-xiaodeng">项目 6</a></p>
 <div class="table-wrap" tabindex="0" aria-label="ETF覆盖期"><table id="coverage"></table></div>
 </section>
