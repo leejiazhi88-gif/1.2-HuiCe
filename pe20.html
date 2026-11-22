@@ -7,9 +7,9 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="pe10.css">
 <link rel="stylesheet" href="pe20.css?v=2">
-<script defer src="pe20-data.js?v=2"></script>
+<script defer src="pe20-data.js?v=3"></script>
 <script defer src="pe10.js"></script>
-<script defer src="pe20.js?v=2"></script>
+<script defer src="pe20.js?v=3"></script>
 </head>
 <body>
 <header><div class="shell bar"><a href="index.html">宽基 ETF <small> / 价值投资回测</small></a><nav><a href="#charts">买卖图</a><a href="#exposure">满仓时间</a><a href="pe10.html">十年版</a></nav></div></header>
@@ -29,7 +29,9 @@
 <canvas id="peChart" tabindex="0" role="img" aria-label="指数滚动市盈率及买卖信号，左右方向键浏览周度数据"></canvas>
 <div class="plot-head"><h3>过去十年 PE 分位</h3><strong id="cursorRank"></strong></div>
 <canvas id="rankChart" tabindex="0" role="img" aria-label="十年 PE 分位走势图，左右方向键浏览周度数据"></canvas>
-<p class="muted">十年分位使用此前十年的日度 PE。历史不足十年的时段用可用历史计算，以虚线显示，少于 240 个观测时留空。买卖策略仍用三年分位。</p>
+<div class="plot-head"><h3>过去十年指数分位</h3><strong id="cursorCloseRank"></strong></div>
+<canvas id="closeRankChart" tabindex="0" role="img" aria-label="指数收盘点位的滚动十年分位，左右方向键浏览周度数据"></canvas>
+<p class="muted">两个分位分别用此前十年的日度 PE 和指数收盘点位计算，排除当天。历史不足十年时用虚线显示，少于 240 个观测时留空。买卖策略按三年 PE 分位触发。</p>
 <div class="marker-buttons" id="markerChoices" aria-label="选择买卖信号"></div>
 <p id="markerInfo" aria-live="polite"></p>
 <p class="muted">曲线取每周最后一个交易日。移入任一图同步读数，移出后恢复最新值。买卖标记对应日度信号，阴影从 ETF 成交开始。</p>

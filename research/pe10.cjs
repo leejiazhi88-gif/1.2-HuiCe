@@ -23,21 +23,21 @@ const assets = [
   ['创业板指','399006.SZ','159915.SZ'],
   ['科创50','000688.SH','588000.SH'],
 ];
-function rollingRank(valuations, years, minimum) {
+function rollingRank(history, years, minimum) {
   let left=0;
-  return valuations.map((v,i)=>{
+  return history.map((v,i)=>{
     const from=new Date(v.date+'T00:00:00Z');
     from.setUTCFullYear(from.getUTCFullYear()-years);
     const cutoff=from.toISOString().slice(0,10);
-    while(valuations[left].date<cutoff) left++;
+    while(history[left].date<cutoff) left++;
     const observations=i-left;
     let lower=0,tied=0;
     for(let j=left;j<i;j++){
-      const previous=valuations[j].pe;
-      if(previous<v.pe) lower++;
-      if(previous===v.pe) tied++;
+      const previous=history[j].value;
+      if(previous<v.value) lower++;
+      if(previous===v.value) tied++;
     }
-    return {rank:observations>=minimum?(lower+tied/2)/observations:null, partial:valuations[0].date>cutoff};
+    return {rank:observations>=minimum?(lower+tied/2)/observations:null, partial:history[0].date>cutoff};
   });
 }
 function run([name,index,code]) {
@@ -58,10 +58,14 @@ function run([name,index,code]) {
   const valuations = [...valuationByDay.values()];
   const indexDays = new Map(series('index_daily',index).map(r=>[iso(r.trade_date),r]));
   assert.equal(valuations.length,new Set(valuations.map(q=>q.date)).size);
-  const ranks3=rollingRank(valuations,3,240);
+  const peHistory=valuations.map(({date,pe})=>({date,value:pe}));
+  const ranks3=rollingRank(peHistory,3,240);
   const signals=valuations.map((v,i)=>({...v,rank:ranks3[i].rank}));
-  const ranks10=longWindow?rollingRank(valuations,10,240):[];
+  const ranks10=longWindow?rollingRank(peHistory,10,240):[];
   const rankByDate=new Map(ranks10.map((r,i)=>[valuations[i].date,r]));
+  const closes=[...indexDays].filter(([,row])=>row.close>0).map(([date,row])=>({date,value:row.close}));
+  const closeRanks=rollingRank(closes,10,240);
+  const closeRankByDate=new Map(closeRanks.map((r,i)=>[closes[i].date,r]));
   const trades=[];
   let cursor=-1, firstEligible=null, position=null, capital=1, fullSessions=0, eligibleSessions=0, lastProcessed=null;
   function closePeriod(mark,exit) {
@@ -109,7 +113,8 @@ function run([name,index,code]) {
     if(date<start||date>end||!(row.close>0)) continue;
     const w=Math.floor((Date.parse(date)/86400000+3)/7);
     const percentile=rankByDate.get(date);
-    weekly.set(w,[date,Number(row.close.toFixed(2)),valuationByDay.get(date)?.pe??null,percentile?.rank??null,percentile?.partial??null]);
+    const closePercentile=closeRankByDate.get(date);
+    weekly.set(w,[date,Number(row.close.toFixed(2)),valuationByDay.get(date)?.pe??null,percentile?.rank??null,percentile?.partial??null,closePercentile?.rank??null,closePercentile?.partial??null]);
   }
   return {
     name,index,code, firstTrading:quotes[0].date,firstEligible,lastTrading:last.date,

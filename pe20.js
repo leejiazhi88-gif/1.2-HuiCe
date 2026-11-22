@@ -4,7 +4,8 @@
   const get=id=>document.getElementById(id);
   const select=get('chartAsset');
   const range=get('chartRange');
-  const canvases=[get('pointsChart'),get('peChart'),get('rankChart')];
+  const canvases=[get('pointsChart'),get('peChart'),get('rankChart'),get('closeRankChart')];
+  const columns=[1,2,3,5];
   const fmt=new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
   select.innerHTML=assets.map((a,i)=>'<option value="'+i+'">'+a.name+' · '+a.code.split('.')[0]+'</option>').join('');
   const asset=()=>assets[Number(select.value)];
@@ -17,7 +18,8 @@
   let begin=start, visible=[], cursor=0, frame;
   const hitPoints=[];
   const timeScale=[];
-  function draw(canvas,metric){
+  function draw(canvas,plot){
+    const metric=columns[plot];
     const ctx=canvas.getContext('2d'), a=asset(), sigs=markers();
     const w=canvas.clientWidth,h=canvas.clientHeight;
     if(!w||!h) return;
@@ -26,8 +28,8 @@
     const t0=Date.parse(begin),t1=Date.parse(endExclusive);
     const left=56,right=w-14,top=14,bottom=h-30;
     const x=d=>left+(Date.parse(d)-t0)/(t1-t0)*(right-left);
-    timeScale[metric-1]=px=>t0+(px-left)/(right-left)*(t1-t0);
-    const rankPlot=metric===3;
+    timeScale[plot]=px=>t0+(px-left)/(right-left)*(t1-t0);
+    const rankPlot=metric>=3;
     const values=visible.map(r=>r[metric]).filter(Number.isFinite);
     const markerValue=m=>metric===1?m.trade.signalClose:m.trade.pe;
     const lo=rankPlot?0:Math.max(0,Math.min(...values,...sigs.map(markerValue))*.91);
@@ -54,14 +56,14 @@
       const d=yr===startYear?begin:yr+'-01-01';
       ctx.fillText(String(yr),x(d),bottom+18);
     }
-    const lineColor=['#f2c773','#8fc4d7','#bbabec'][metric-1];
+    const lineColor=['#f2c773','#8fc4d7','#bbabec','#e9b287'][plot];
     ctx.strokeStyle=lineColor;ctx.lineWidth=1.45;
     for(const partial of rankPlot?[true,false]:[false]){
       ctx.setLineDash(partial?[4,3]:[]);
       ctx.beginPath();
       let previous, penDown=false;
       for(const r of visible){
-        if(previous&&Number.isFinite(r[metric])&&(!rankPlot||r[4]===partial)){
+        if(previous&&Number.isFinite(r[metric])&&(!rankPlot||r[metric+1]===partial)){
           if(!penDown) ctx.moveTo(x(previous[0]),y(previous[metric]));
           ctx.lineTo(x(r[0]),y(r[metric]));
           penDown=true;
@@ -80,7 +82,7 @@
       ctx.strokeStyle=i===picked?'#fff4d4':'#132125';ctx.lineWidth=i===picked?2.5:1;ctx.stroke();
       return {px,py};
     });
-    hitPoints[metric-1]=points;
+    hitPoints[plot]=points;
     const row=visible[cursor];
     if(!row) return;
     const xx=x(row[0]);
@@ -91,13 +93,15 @@
     }
   }
   function renderCursor(){
-    const [date,points,pe,rank,partial]=visible[cursor];
+    const [date,points,pe,rank,partial,closeRank,closePartial]=visible[cursor];
     const time=get('cursorDate');
     time.dateTime=date;time.textContent=date;
     get('cursorPoints').textContent=fmt.format(points)+' 点';
     get('cursorPe').textContent=pe===null?'暂无数据':fmt.format(pe)+' 倍';
-    get('cursorRank').textContent=rank===null?'样本不足':fmt.format(rank*100)+'%'+(partial?'（历史不足十年）':'');
-    canvases.forEach((c,i)=>draw(c,i+1));
+    const rankText=(value,short)=>value===null?'样本不足':fmt.format(value*100)+'%'+(short?'（历史不足十年）':'');
+    get('cursorRank').textContent=rankText(rank,partial);
+    get('cursorCloseRank').textContent=rankText(closeRank,closePartial);
+    canvases.forEach(draw);
   }
   function setCursor(i){
     if(i===cursor) return;
@@ -124,7 +128,7 @@
       const key=asset().code.split('.')[0]+'-'+m.round;
       get('markerInfo').innerHTML='<strong style="color:'+paint(m)+'">'+(m.buy?'买入':'卖出')+'信号 '+t.signal+'</strong> · 指数收盘 '+fmt.format(t.signalClose)+' 点 · PE '+fmt.format(t.pe)+' 倍 · 三年分位 '+fmt.format(t.rank*100)+'%<br>成交 '+t.date+' · 指数开盘 '+fmt.format(t.indexOpen)+' 点 · ETF 开盘 '+t.open.toFixed(3)+' 元 · <a href="#trades" data-trade="'+key+'">查看本轮明细</a>';
     }
-    canvases.forEach((c,i)=>draw(c,i+1));
+    canvases.forEach(draw);
   }
   function render(){
     cancelAnimationFrame(frame);
@@ -182,7 +186,7 @@
       });
       if(index>=0){picked=index;renderMarkers();}
     });
-    new ResizeObserver(()=>draw(c,i+1)).observe(c);
+    new ResizeObserver(()=>draw(c,i)).observe(c);
   });
   render();
 })();
