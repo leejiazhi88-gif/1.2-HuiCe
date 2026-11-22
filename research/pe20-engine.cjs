@@ -15,13 +15,15 @@ function simulatePe(rows, finalClose, lastSignal, endExclusive, cost, rule) {
   for(const [date,open,adjOpen,signal,pe,rank,signalClose,indexOpen,adjClose] of rows) {
     const value=rule.kind==='absolute'?pe:rank;
     const trend=rule.trend?.get(signal);
-    const ready=rule.kind==='trend'?trend!=null:value!=null;
-    const scheduled=rule.kind!=='trend'||(signal&&week(signal)<week(date)&&(!previousDate||week(previousDate)!==week(date)));
+    const ready=rule.trend?trend!=null:value!=null;
+    const scheduled=!rule.trend||(signal&&week(signal)<week(date)&&(!previousDate||week(previousDate)!==week(date)));
     if(firstEligible===null&&ready&&scheduled) firstEligible=date;
     if(firstEligible!==null) eligibleSessions++;
     if(ready&&scheduled&&signal!==lastProcessed){
-      const shouldBuy=trend?trend.rank<=rule.buy&&signalClose>trend.average:value<=rule.buy;
-      const shouldSell=trend?trend.rank>=rule.sell||signalClose<trend.average*0.97:value>=rule.sell;
+      const shouldBuy=trend?trend.rank<=rule.buy&&(rule.kind==='patient'||signalClose>trend.average):value<=rule.buy;
+      const shouldSell=rule.kind==='patient'
+        ?trend.rank>=rule.hardExit||(trend.rank>=rule.sell&&signalClose<trend.average)
+        :trend?trend.rank>=rule.sell||signalClose<trend.average*0.97:value>=rule.sell;
       if(position?shouldSell:shouldBuy){
         const fill={signal,pe,rank:trend?.rank??rank,date,open,signalClose,indexOpen,...(trend?{average:trend.average}:{})};
         if(position) closePeriod(adjOpen,fill);
@@ -37,7 +39,7 @@ function simulatePe(rows, finalClose, lastSignal, endExclusive, cost, rule) {
   }
   const currentPosition=Boolean(position);
   const lastValue=rule.kind==='absolute'?lastSignal.pe:lastSignal.rank;
-  const pending=rule.kind!=='trend'&&lastSignal.date!==lastProcessed&&lastValue!=null
+  const pending=!rule.trend&&lastSignal.date!==lastProcessed&&lastValue!=null
     &&(currentPosition?lastValue>=rule.sell:lastValue<=rule.buy)?(currentPosition?'卖出':'买入'):null;
   if(position) closePeriod(finalClose,null);
   return {

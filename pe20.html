@@ -7,9 +7,9 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="pe10.css">
 <link rel="stylesheet" href="pe20.css?v=7">
-<script defer src="pe20-data.js?v=6"></script>
+<script defer src="pe20-data.js?v=8"></script>
 <script defer src="pe10.js?v=6"></script>
-<script defer src="pe20.js?v=7"></script>
+<script defer src="pe20.js?v=8"></script>
 </head>
 <body>
 <header><div class="shell bar"><a href="index.html">宽基 ETF <small> / 价值投资回测</small></a><nav><a href="#charts">策略与图表</a><a href="#exposure">满仓与收益</a><a href="#comparison">后段检验</a></nav></div></header>
@@ -85,8 +85,15 @@
 <h2>后段检验</h2>
 <p class="muted" id="studyNote"></p>
 <p id="studyResult"></p>
-<div class="table-wrap" tabindex="0" aria-label="三套策略后段年化收益和回撤"><table id="studyTable"></table></div>
+<p id="patientResult"></p>
+<div class="table-wrap" tabindex="0" aria-label="四套策略后段年化收益和回撤"><table id="studyTable"></table></div>
+<details open>
+<summary>默认参数的分段与交易成本检验</summary>
+<p class="muted">仅用四套策略都有数据的 7 只 ETF，分别算每只的年化再取平均。每段独立从现金开始。</p>
+<div class="table-wrap" tabindex="0" aria-label="默认参数分段与交易成本检验"><table id="patientChecks"></table></div>
+</details>
 <details><summary>查看策略 3 的候选规则</summary><div class="table-wrap" tabindex="0" aria-label="策略3候选规则"><table id="candidateTable"></table></div></details>
+<details><summary>查看策略 4 的候选规则</summary><div class="table-wrap" tabindex="0" aria-label="策略4候选规则"><table id="patientCandidates"></table></div></details>
 </section>
 <section id="method">
 <h2>回测口径</h2>

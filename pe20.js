@@ -262,7 +262,7 @@
     if(m){
       const t=m.trade;
       const key=asset().code.split('.')[0]+'-'+m.round;
-      const context=t.average?' · '+study.chosen.years+' 年分位 '+fmt.format(t.rank*100)+'% · 均线 '+fmt.format(t.average)+' 点'
+      const context=t.average?' · '+(strategy.lookback??study.chosen.years)+' 年分位 '+fmt.format(t.rank*100)+'% · 均线 '+fmt.format(t.average)+' 点'
         :strategy.id==='percentile'?' · '+applied.percentile.config.years+' 年分位 '+fmt.format(t.rank*100)+'%':'';
       get('markerInfo').innerHTML='<strong style="color:'+paint(m)+'">'+(m.buy?'买入':'卖出')+'信号 '+t.signal+'</strong> · 指数收盘 '+fmt.format(t.signalClose)+' 点 · PE '+fmt.format(t.pe)+' 倍'+context+'<br>成交 '+t.date+' · 指数开盘 '+fmt.format(t.indexOpen)+' 点 · ETF 开盘 '+t.open.toFixed(3)+' 元 · <a href="#trades" data-trade="'+key+'">查看本轮明细</a>';
     } else {
@@ -285,7 +285,9 @@
       :strategy.id==='absolute'?'用近 '+config.years+' 年日度 PE 的第 '+config.buy+'、'+config.sell+' 百分位定倍数。低于或等于买入倍数时满仓，高于或等于卖出倍数时清仓。':strategy.summary;
     const t=a.thresholds;
     get('strategyDetail').textContent=t?a.name+' · PE ≤ '+fmt.format(t.buy)+' 倍买入，≥ '+fmt.format(t.sell)+' 倍卖出。样本 '+t.start+' 至 '+t.end+'（'+t.observations+' 日）。固定阈值使用全样本，含回测时点之后的数据。'
-      :strategy.id==='trend'?'训练期 2016–2020 年，后段独立检验。下方可对比三套策略。':'分位每天按当时可得的历史重新计算。';
+      :strategy.id==='trend'?'训练期 2016–2020 年，按年化收益中位数选规则。'
+      :strategy.id==='patient'?'训练期 2016–2020 年，从 24 个候选中按平均年化收益选规则。看下方后段和成本检验。'
+      :'分位每天按当时可得的历史重新计算。';
     begin=range.value==='active'?(firstSignal<a.firstEligible?firstSignal:a.firstEligible):start;
     visible=a.weekly.filter(r=>r[0]>=begin);
     cursor=visible.length-1;
@@ -348,7 +350,7 @@
   });
   const percentage=x=>fmt.format(x*100)+'%';
   const studyCell=r=>r?'<td>'+percentage(r.annual)+' <span class="date-extra">回撤 '+percentage(r.drawdown)+'</span></td>':'<td>样本不足</td>';
-  get('studyNote').textContent='用 2016–2020 年六只当时已有 ETF 的指数，从 12 套规则中按年化收益中位数选策略 3。下表检验 '+study.testStart+' 至 '+study.end+'，各策略从空仓起步，持有基准首日买入。策略 2 在这里用 2020 年底前的 PE 固定阈值。';
+  get('studyNote').textContent='策略 3、4 用 2016–2020 年已有的六只 ETF 选参数。下表检验 '+study.testStart+' 至 '+study.end+'，各策略从空仓起步，持有基准首日买入。策略 2 在这里用 2020 年底前的 PE 固定阈值。此后段已有历史回测记录，后续行情可继续跟踪。';
   function renderStudy(){
     const rows=study.rows.map(r=>{
       const i=assets.findIndex(a=>a.code===r.code);
@@ -357,16 +359,24 @@
     });
     const lowerRisk=rows.filter(r=>r.trend.drawdown<r.percentile.drawdown).length;
     const higherReturn=rows.filter(r=>r.trend.annual>r.percentile.annual).length;
+    const common=rows.filter(r=>r.absolute);
+    const beatsBoth=common.filter(r=>r.patient.annual>Math.max(r.percentile.annual,r.absolute.annual)).length;
     const describe=mode=>{
       const c=applied[mode].config;
       return c.years+' 年 · '+c.buy+'% / '+c.sell+'%';
     };
     get('studyResult').textContent='对比当前策略 1，策略 3 的最大回撤更小有 '+lowerRisk+' / '+rows.length+' 只，年化收益更高有 '+higherReturn+' / '+rows.length+' 只。';
-    get('studyTable').innerHTML='<thead><tr><th scope="col">指数</th><th scope="col">策略 1 年化 <span class="date-extra">'+describe('percentile')+'</span></th><th scope="col">策略 2 年化 <span class="date-extra">'+describe('absolute')+'</span></th><th scope="col">策略 3 年化</th><th scope="col">买入持有年化</th></tr></thead><tbody>'+
-      rows.map(r=>'<tr><th scope="row">'+r.name+'</th>'+studyCell(r.percentile)+studyCell(r.absolute)+studyCell(r.trend)+'<td>'+percentage(r.trend.holdAnnual)+'</td></tr>').join('')+'</tbody>';
+    get('patientResult').textContent='按当前参数，策略 4 在 '+common.length+' 只可比 ETF 中有 '+beatsBoth+' 只的年化同时超过策略 1、2。';
+    get('studyTable').innerHTML='<thead><tr><th scope="col">指数</th><th scope="col">策略 1 年化 <span class="date-extra">'+describe('percentile')+'</span></th><th scope="col">策略 2 年化 <span class="date-extra">'+describe('absolute')+'</span></th><th scope="col">策略 3 年化</th><th scope="col">策略 4 年化</th><th scope="col">买入持有年化</th></tr></thead><tbody>'+
+      rows.map(r=>'<tr><th scope="row">'+r.name+'</th>'+studyCell(r.percentile)+studyCell(r.absolute)+studyCell(r.trend)+studyCell(r.patient)+'<td>'+percentage(r.trend.holdAnnual)+'</td></tr>').join('')+'</tbody>';
   }
   get('candidateTable').innerHTML='<thead><tr><th scope="col">PE 观察期</th><th scope="col">买入分位上限</th><th scope="col">指数均线</th><th scope="col">训练年化中位数</th></tr></thead><tbody>'+
     study.candidates.map((c,i)=>'<tr'+(i===0?' class="primary"':'')+'><td>'+c.years+' 年</td><td>'+percentage(c.buy)+'</td><td>'+c.length+' 日</td><td>'+percentage(c.score)+'</td></tr>').join('')+'</tbody>';
+  get('patientCandidates').innerHTML='<thead><tr><th scope="col">PE 观察期</th><th scope="col">买入分位上限</th><th scope="col">指数均线</th><th scope="col">无条件卖出分位</th><th scope="col">训练平均年化</th></tr></thead><tbody>'+
+    study.patientCandidates.map((c,i)=>'<tr'+(i===0?' class="primary"':'')+'><td>'+c.years+' 年</td><td>'+percentage(c.buy)+'</td><td>'+c.length+' 日</td><td>'+percentage(c.hardExit)+'</td><td>'+percentage(c.score)+'</td></tr>').join('')+'</tbody>';
+  get('patientChecks').innerHTML='<thead><tr><th scope="col">区间</th><th scope="col">单边成本</th><th scope="col">策略 1</th><th scope="col">策略 2</th><th scope="col">策略 3</th><th scope="col">策略 4</th></tr></thead><tbody>'+
+    study.patientChecks.map(r=>'<tr><th scope="row">'+r.label+'<span class="date-extra">'+r.from+' 至 '+r.through+'</span></th><td>'+percentage(r.fee)+'</td>'+
+      r.annual.map(x=>'<td>'+percentage(x)+'</td>').join('')+'</tr>').join('')+'</tbody>';
   showControls();
   showResults();
 })();

@@ -158,9 +158,9 @@ if(longWindow){
     });
     return {kind:'trend',buy:c.buy,sell:0.9,trend};
   }
-  function evaluate(a,rule,from,until){
+  function evaluate(a,rule,from,until,fee=cost){
     const rows=a.rows.filter(r=>r[0]>=from&&r[0]<until);
-    const m=simulatePe(rows,rows.at(-1)[8],a.lastSignal,until,cost,rule);
+    const m=simulatePe(rows,rows.at(-1)[8],a.lastSignal,until,fee,rule);
     return {annual:m.annual,drawdown:m.drawdown,holdAnnual:(1+m.hold)**(365.25/days(until,rows[0][0]))-1};
   }
   function withLookback(a,years){
@@ -175,19 +175,51 @@ if(longWindow){
     c.score=quantile(returns,0.5);
   }
   const chosen=candidates.sort((a,b)=>b.score-a.score)[0];
+  const patientCandidates=[3,5,10].flatMap(years=>[0.20,0.35].flatMap(buy=>[100,200].flatMap(length=>
+    [0.95,0.99].map(hardExit=>({years,buy,length,hardExit})))));
+  const patientRule=(a,c)=>({...trendRule(a,c),kind:'patient',sell:0.8,hardExit:c.hardExit});
+  for(const c of patientCandidates){
+    c.score=training.reduce((sum,a)=>sum+evaluate(a,patientRule(a,c),trainStart,trainEnd).annual,0)/training.length;
+  }
+  patientCandidates.sort((a,b)=>b.score-a.score);
+  const patient=patientCandidates[0];
+  const testAbsolute=a=>{
+    const pe=a.peHistory.filter(p=>p.date>=start&&p.date<trainEnd).map(p=>p.value).sort((a,b)=>a-b);
+    return pe.length>=240?{kind:'absolute',buy:quantile(pe,0.2),sell:quantile(pe,0.8)}:null;
+  };
   result.strategies=[
     {id:'percentile',name:'策略1-PE分位',defaultLookback:3},
     {id:'absolute',name:'策略2-PE绝对值',summary:'各指数近二十年日度 PE 的第 20、80 百分位作固定倍数。PE ≤买入倍数时满仓，≥卖出倍数时清仓。',results:absoluteResults},
     {id:'trend',name:'策略3-估值与趋势',summary:'每周复核。滚动 '+chosen.years+' 年 PE 分位 ≤'+Math.round(chosen.buy*100)+'% 且收盘高于 '+chosen.length+' 日均线时满仓，PE 分位 ≥90% 或收盘低于均线 3% 时清仓。',
       results:researchInputs.map(a=>({code:a.code,...simulatePe(a.rows,a.rows.at(-1)[8],a.lastSignal,endExclusive,cost,trendRule(a,chosen))}))},
+    {id:'patient',name:'策略4-低估买入、趋势卖出',lookback:patient.years,
+      summary:'每周复核。滚动 '+patient.years+' 年 PE 分位 ≤'+Math.round(patient.buy*100)+'% 时满仓；分位 ≥80% 且收盘低于 '+patient.length+' 日均线时清仓，分位 ≥'+Math.round(patient.hardExit*100)+'% 时直接清仓。',
+      results:researchInputs.map(a=>({code:a.code,...simulatePe(a.rows,a.rows.at(-1)[8],a.lastSignal,endExclusive,cost,patientRule(a,patient))}))},
   ];
-  result.study={trainStart,trainEnd,testStart,end,training:training.length,candidates,chosen,rows:evaluation.map(a=>{
-    const pe=a.peHistory.filter(p=>p.date>=start&&p.date<trainEnd).map(p=>p.value).sort((a,b)=>a-b);
-    const absolute=pe.length>=240?evaluate(a,{kind:'absolute',buy:quantile(pe,0.2),sell:quantile(pe,0.8)},testStart,endExclusive):null;
+  result.study={trainStart,trainEnd,testStart,end,training:training.length,candidates,chosen,patientCandidates,patient,rows:evaluation.map(a=>{
+    const fixed=testAbsolute(a);
+    const absolute=fixed?evaluate(a,fixed,testStart,endExclusive):null;
     return {name:a.name,code:a.code,absolute,
       percentile:evaluate(a,percentileRule,testStart,endExclusive),
-      trend:evaluate(a,trendRule(a,chosen),testStart,endExclusive)};
+      trend:evaluate(a,trendRule(a,chosen),testStart,endExclusive),
+      patient:evaluate(a,patientRule(a,patient),testStart,endExclusive)};
   })};
+  const common=evaluation.filter(a=>testAbsolute(a));
+  result.study.patientChecks=[
+    {label:'后段检验',from:testStart,until:endExclusive,fee:cost},
+    {label:'后段检验，较高交易成本',from:testStart,until:endExclusive,fee:0.0015},
+    {label:'后段前半',from:testStart,until:'2024-01-01',fee:cost},
+    {label:'后段后半',from:'2024-01-01',until:endExclusive,fee:cost},
+  ].map(({label,from,until,fee})=>{
+    const rows=common.map(a=>[
+      evaluate(a,percentileRule,from,until,fee),
+      evaluate(a,testAbsolute(a),from,until,fee),
+      evaluate(a,trendRule(a,chosen),from,until,fee),
+      evaluate(a,patientRule(a,patient),from,until,fee),
+    ]);
+    return {label,from,through:new Date(Date.parse(until)-86400000).toISOString().slice(0,10),fee,count:rows.length,
+      annual:rows[0].map((_,i)=>rows.reduce((sum,r)=>sum+r[i].annual,0)/rows.length)};
+  });
   result.tuningFields=tuningFields;
   if(process.argv.includes('--tuning')){
     const dir='work/site/tuning';
