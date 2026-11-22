@@ -22,7 +22,18 @@ const assets = [
   ['中证1000','000852.SH','159845.SZ'],
   ['创业板指','399006.SZ','159915.SZ'],
   ['科创50','000688.SH','588000.SH'],
+  ...(longWindow?[
+    ['上证综指','000001.SH','510210.SH'],
+    ['深证成指','399001.SZ','159903.SZ'],
+    ['科创综指','000680.SH','589000.SH'],
+  ]:[]),
 ];
+function valuationRows(index){
+  if(index!=='000680.SH') return series('val',index);
+  const official=JSON.parse(fs.readFileSync('work/pe20-p6-star-official.json','utf8').replace(/^\uFEFF/,''));
+  assert.equal(official.meta.tsCode,index);
+  return official.rows.map(({date,pe})=>({trade_date:date.replaceAll('-',''),pe_ttm:pe}));
+}
 function rollingRank(history, years, minimum) {
   let left=0;
   return history.map((v,i)=>{
@@ -50,7 +61,7 @@ function run([name,index,code]) {
   assert.equal(quotes.length,new Set(quotes.map(q=>q.date)).size);
   assert.equal(quotes.at(-1).date,end);
   const valuationByDay = new Map();
-  for(const r of series('val',index).filter(r=>r.pe_ttm>0&&iso(r.trade_date)<=end)){
+  for(const r of valuationRows(index).filter(r=>r.pe_ttm>0&&iso(r.trade_date)<=end)){
     const d=iso(r.trade_date);
     assert(!valuationByDay.has(d)||valuationByDay.get(d).pe===r.pe_ttm,'Conflicting PE '+index+' '+d);
     valuationByDay.set(d,{date:d,pe:r.pe_ttm});
@@ -118,6 +129,7 @@ function run([name,index,code]) {
   }
   return {
     name,index,code, firstTrading:quotes[0].date,firstEligible,lastTrading:last.date,
+    ...(index==='000680.SH'?{peHistoryNote:'科创综指采用项目 6 收录的中证指数官方滚动 PE，序列始于 '+valuations[0].date+'。PE 分位及策略在积累 240 个历史观测后开始。'}:{}),
     availableDays:days(endExclusive,quotes[0].date), eligibleDays:days(endExclusive,firstEligible),
     sessions:quotes.length,eligibleSessions,fullSessions,duration,trades,currentPosition,pending,lastSignal,
     total:capital-1, hold:last.adjClose/(quotes[0].adjOpen*(1+cost))-1, weekly:[...weekly.values()]

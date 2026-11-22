@@ -127,12 +127,17 @@
       const t=m.trade;
       const key=asset().code.split('.')[0]+'-'+m.round;
       get('markerInfo').innerHTML='<strong style="color:'+paint(m)+'">'+(m.buy?'买入':'卖出')+'信号 '+t.signal+'</strong> · 指数收盘 '+fmt.format(t.signalClose)+' 点 · PE '+fmt.format(t.pe)+' 倍 · 三年分位 '+fmt.format(t.rank*100)+'%<br>成交 '+t.date+' · 指数开盘 '+fmt.format(t.indexOpen)+' 点 · ETF 开盘 '+t.open.toFixed(3)+' 元 · <a href="#trades" data-trade="'+key+'">查看本轮明细</a>';
+    } else {
+      get('markerInfo').textContent='该 ETF 在可执行区间内没有成交记录。';
     }
     canvases.forEach(draw);
   }
   function render(){
     cancelAnimationFrame(frame);
     const a=asset(), firstSignal=markers()[0]?.trade.signal;
+    const note=get('peHistoryNote');
+    note.textContent=a.peHistoryNote||'';
+    note.hidden=!a.peHistoryNote;
     begin=range.value==='active'?(firstSignal<a.firstEligible?firstSignal:a.firstEligible):start;
     visible=a.weekly.filter(r=>r[0]>=begin);
     cursor=visible.length-1;
