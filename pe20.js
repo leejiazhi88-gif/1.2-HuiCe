@@ -1,12 +1,116 @@
 'use strict';
 (() => {
-  const {assets,strategies,study,start,end,endExclusive}=window.PE10;
+  const {assets,strategies,study,start,end,endExclusive,tuningFields}=window.PE10;
   const get=id=>document.getElementById(id);
   const select=get('chartAsset');
   const range=get('chartRange');
   const strategySelect=get('strategySelect');
   strategySelect.innerHTML=strategies.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
   let strategy=strategies[0], active=assets;
+  const lookback=get('lookbackYears'), buySlider=get('buyPercent'), sellSlider=get('sellPercent');
+  const defaults={percentile:{years:strategies[0].defaultLookback,buy:20,sell:80},absolute:{years:20,buy:20,sell:80}};
+  const settings=structuredClone(defaults);
+  const applied={
+    percentile:{config:defaults.percentile,assets},
+    absolute:{config:defaults.absolute,assets:assets.map((a,i)=>({...a,...strategies[1].results[i]}))},
+  };
+  window.PE_TUNING={};
+  const downloads=new Map();
+  let request=0;
+  const status=message=>{get('tuneStatus').textContent=message;get('tuneStatus').hidden=!message;};
+  const equal=(a,b)=>a.years===b.years&&a.buy===b.buy&&a.sell===b.sell;
+  function loadTuning(key){
+    if(!downloads.has(key)){
+      downloads.set(key,new Promise((resolve,reject)=>{
+        const script=document.createElement('script');
+        script.src='tuning/'+key+'.js?v=6';
+        script.onload=async()=>{
+          script.remove();
+          try{
+            const bytes=Uint8Array.from(atob(window.PE_TUNING[key]),c=>c.charCodeAt(0));
+            delete window.PE_TUNING[key];
+            const data=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
+            resolve(data);
+          }catch(error){
+            downloads.delete(key);
+            reject(error);
+          }
+        };
+        script.onerror=()=>{script.remove();downloads.delete(key);reject(new Error(key));};
+        document.head.appendChild(script);
+      }));
+      if(downloads.size>4) downloads.delete(downloads.keys().next().value);
+    }
+    return downloads.get(key);
+  }
+  function showControls(){
+    const config=settings[strategy.id];
+    get('lookbackControl').hidden=!config;
+    if(!config) return;
+    const max=strategy.id==='absolute'?20:10;
+    get('lookbackLabel').textContent=strategy.id==='absolute'?'PE 取样期':'PE 回看期';
+    lookback.max=String(max);
+    get('lookbackMax').textContent=max+' 年';
+    lookback.value=config.years;
+    buySlider.value=config.buy;
+    sellSlider.value=config.sell;
+    get('lookbackValue').textContent=config.years+' 年';
+    get('buyValue').textContent=config.buy+'%';
+    get('sellValue').textContent=config.sell+'%';
+    lookback.setAttribute('aria-valuetext',config.years+' 年');
+    buySlider.setAttribute('aria-valuetext',config.buy+'%');
+    sellSlider.setAttribute('aria-valuetext',config.sell+'%');
+  }
+  function showResults(){
+    const selected=applied[strategy.id];
+    active=selected?selected.assets:assets.map((a,i)=>({...a,...strategy.results[i]}));
+    const config=selected?.config;
+    const name=config?strategy.name+'（'+config.years+'年 '+config.buy+'% / '+config.sell+'%）':strategy.name;
+    picked=0;
+    window.dispatchEvent(new CustomEvent('pe-strategy-change',{detail:{assets:active,strategy:{id:strategy.id,name}}}));
+    renderStudy();
+    render();
+  }
+  async function applyTuning(){
+    const mode=strategy.id, config=settings[mode], revision=++request;
+    if(!config||equal(config,applied[mode].config)){status('');return;}
+    status('正在载入回测结果…');
+    try{
+      const chunk=await loadTuning(mode+'-'+config.years);
+      if(revision!==request) return;
+      const buy=config.buy/5, sell=config.sell/5;
+      const offset=buy*(41-buy)/2+sell-buy-1;
+      const test=[];
+      const next=assets.map((a,i)=>{
+        const source=chunk[i];
+        const [metrics,rounds,studyResult,pe]=source.variants[offset];
+        test.push(studyResult?{annual:studyResult[0],drawdown:studyResult[1]}:null);
+        const thresholds=pe?{buy:pe[0],sell:pe[1],start:source.sample[0],end:source.sample[1],observations:source.sample[2]}:undefined;
+        return {...a,...Object.fromEntries(tuningFields.map((field,j)=>[field,metrics[j]])),
+          trades:rounds.map(j=>source.trades[j]),lastSignal:source.lastSignal,thresholds};
+      });
+      applied[mode]={config,assets:next,test};
+      status('');
+      showResults();
+    }catch{
+      if(revision!==request) return;
+      settings[mode]=applied[mode].config;
+      showControls();
+      status('载入失败，已保留上一次的结果。请再调一次。');
+    }
+  }
+  for(const slider of [lookback,buySlider,sellSlider]){
+    slider.addEventListener('input',()=>{
+      const current={years:Number(lookback.value),buy:Number(buySlider.value),sell:Number(sellSlider.value)};
+      if(current.buy>=current.sell){
+        if(slider===buySlider) current.buy=current.sell-5;
+        else current.sell=current.buy+5;
+      }
+      settings[strategy.id]=current;
+      showControls();
+      applyTuning();
+    });
+  }
   const canvases=[get('pointsChart'),get('peChart'),get('rankChart'),get('closeRankChart')];
   const columns=[1,2,3,5];
   const fmt=new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -139,7 +243,7 @@
       const t=m.trade;
       const key=asset().code.split('.')[0]+'-'+m.round;
       const context=t.average?' · '+study.chosen.years+' 年分位 '+fmt.format(t.rank*100)+'% · 均线 '+fmt.format(t.average)+' 点'
-        :strategy.id==='percentile'?' · 三年分位 '+fmt.format(t.rank*100)+'%':'';
+        :strategy.id==='percentile'?' · '+applied.percentile.config.years+' 年分位 '+fmt.format(t.rank*100)+'%':'';
       get('markerInfo').innerHTML='<strong style="color:'+paint(m)+'">'+(m.buy?'买入':'卖出')+'信号 '+t.signal+'</strong> · 指数收盘 '+fmt.format(t.signalClose)+' 点 · PE '+fmt.format(t.pe)+' 倍'+context+'<br>成交 '+t.date+' · 指数开盘 '+fmt.format(t.indexOpen)+' 点 · ETF 开盘 '+t.open.toFixed(3)+' 元 · <a href="#trades" data-trade="'+key+'">查看本轮明细</a>';
     } else {
       get('markerInfo').textContent='该 ETF 在可执行区间内没有成交记录。';
@@ -152,7 +256,9 @@
     const note=get('peHistoryNote');
     note.textContent=a.peHistoryNote||'';
     note.hidden=!a.peHistoryNote;
-    get('strategySummary').textContent=strategy.summary;
+    const config=applied[strategy.id]?.config;
+    get('strategySummary').textContent=strategy.id==='percentile'?'滚动 '+config.years+' 年 PE 分位 ≤'+config.buy+'% 满仓买入，≥'+config.sell+'% 清仓。'
+      :strategy.id==='absolute'?'用近 '+config.years+' 年日度 PE 的第 '+config.buy+'、'+config.sell+' 百分位定倍数。低于或等于买入倍数时满仓，高于或等于卖出倍数时清仓。':strategy.summary;
     const t=a.thresholds;
     get('strategyDetail').textContent=t?a.name+' · PE ≤ '+fmt.format(t.buy)+' 倍买入，≥ '+fmt.format(t.sell)+' 倍卖出。样本 '+t.start+' 至 '+t.end+'（'+t.observations+' 日）。固定阈值使用全样本，含回测时点之后的数据。'
       :strategy.id==='trend'?'训练期 2016–2020 年，后段独立检验。下方可对比三套策略。':'分位每天按当时可得的历史重新计算。';
@@ -165,10 +271,9 @@
   select.addEventListener('change',()=>{picked=0;render();});
   strategySelect.addEventListener('change',()=>{
     strategy=strategies.find(s=>s.id===strategySelect.value);
-    active=strategy.results?assets.map((a,i)=>({...a,...strategy.results[i]})):assets;
-    picked=0;
-    window.dispatchEvent(new CustomEvent('pe-strategy-change',{detail:{assets:active,strategy}}));
-    render();
+    showControls();
+    showResults();
+    applyTuning();
   });
   range.addEventListener('change',render);
   get('markerChoices').addEventListener('click',e=>{
@@ -221,12 +326,24 @@
   const percentage=x=>fmt.format(x*100)+'%';
   const studyCell=r=>r?'<td>'+percentage(r.annual)+' <span class="date-extra">回撤 '+percentage(r.drawdown)+'</span></td>':'<td>样本不足</td>';
   get('studyNote').textContent='用 2016–2020 年六只当时已有 ETF 的指数，从 12 套规则中按年化收益中位数选策略 3。下表检验 '+study.testStart+' 至 '+study.end+'，各策略从空仓起步，持有基准首日买入。策略 2 在这里用 2020 年底前的 PE 固定阈值。';
-  const lowerRisk=study.rows.filter(r=>r.trend.drawdown<r.percentile.drawdown).length;
-  const higherReturn=study.rows.filter(r=>r.trend.annual>r.percentile.annual).length;
-  get('studyResult').textContent='对比策略 1，策略 3 的最大回撤更小有 '+lowerRisk+' / '+study.rows.length+' 只，年化收益更高有 '+higherReturn+' / '+study.rows.length+' 只。';
-  get('studyTable').innerHTML='<thead><tr><th scope="col">指数</th><th scope="col">策略 1 年化</th><th scope="col">策略 2 年化</th><th scope="col">策略 3 年化</th><th scope="col">买入持有年化</th></tr></thead><tbody>'+
-    study.rows.map(r=>'<tr><th scope="row">'+r.name+'</th>'+studyCell(r.percentile)+studyCell(r.absolute)+studyCell(r.trend)+'<td>'+percentage(r.trend.holdAnnual)+'</td></tr>').join('')+'</tbody>';
+  function renderStudy(){
+    const rows=study.rows.map(r=>{
+      const i=assets.findIndex(a=>a.code===r.code);
+      return {...r,percentile:applied.percentile.test?applied.percentile.test[i]:r.percentile,
+        absolute:applied.absolute.test?applied.absolute.test[i]:r.absolute};
+    });
+    const lowerRisk=rows.filter(r=>r.trend.drawdown<r.percentile.drawdown).length;
+    const higherReturn=rows.filter(r=>r.trend.annual>r.percentile.annual).length;
+    const describe=mode=>{
+      const c=applied[mode].config;
+      return c.years+' 年 · '+c.buy+'% / '+c.sell+'%';
+    };
+    get('studyResult').textContent='对比当前策略 1，策略 3 的最大回撤更小有 '+lowerRisk+' / '+rows.length+' 只，年化收益更高有 '+higherReturn+' / '+rows.length+' 只。';
+    get('studyTable').innerHTML='<thead><tr><th scope="col">指数</th><th scope="col">策略 1 年化 <span class="date-extra">'+describe('percentile')+'</span></th><th scope="col">策略 2 年化 <span class="date-extra">'+describe('absolute')+'</span></th><th scope="col">策略 3 年化</th><th scope="col">买入持有年化</th></tr></thead><tbody>'+
+      rows.map(r=>'<tr><th scope="row">'+r.name+'</th>'+studyCell(r.percentile)+studyCell(r.absolute)+studyCell(r.trend)+'<td>'+percentage(r.trend.holdAnnual)+'</td></tr>').join('')+'</tbody>';
+  }
   get('candidateTable').innerHTML='<thead><tr><th scope="col">PE 观察期</th><th scope="col">买入分位上限</th><th scope="col">指数均线</th><th scope="col">训练年化中位数</th></tr></thead><tbody>'+
     study.candidates.map((c,i)=>'<tr'+(i===0?' class="primary"':'')+'><td>'+c.years+' 年</td><td>'+percentage(c.buy)+'</td><td>'+c.length+' 日</td><td>'+percentage(c.score)+'</td></tr>').join('')+'</tbody>';
-  render();
+  showControls();
+  showResults();
 })();

@@ -20,11 +20,13 @@ function simulatePe(rows, finalClose, lastSignal, endExclusive, cost, rule) {
     if(firstEligible===null&&ready&&scheduled) firstEligible=date;
     if(firstEligible!==null) eligibleSessions++;
     if(ready&&scheduled&&signal!==lastProcessed){
-      const fill={signal,pe,rank:trend?.rank??rank,date,open,signalClose,indexOpen,...(trend?{average:trend.average}:{})};
       const shouldBuy=trend?trend.rank<=rule.buy&&signalClose>trend.average:value<=rule.buy;
       const shouldSell=trend?trend.rank>=rule.sell||signalClose<trend.average*0.97:value>=rule.sell;
-      if(!position&&shouldBuy) position={buy:fill,price:adjOpen,sessions:0};
-      else if(position&&shouldSell) closePeriod(adjOpen,fill);
+      if(position?shouldSell:shouldBuy){
+        const fill={signal,pe,rank:trend?.rank??rank,date,open,signalClose,indexOpen,...(trend?{average:trend.average}:{})};
+        if(position) closePeriod(adjOpen,fill);
+        else position={buy:fill,price:adjOpen,sessions:0};
+      }
       lastProcessed=signal;
     }
     if(position){position.sessions++;fullSessions++;}

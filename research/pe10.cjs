@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
+const {gzipSync}=require('node:zlib');
 const simulatePe = require('./pe20-engine.cjs');
 const longWindow = process.argv.includes('--20');
 const start = longWindow ? '2006-11-21' : '2016-11-21';
@@ -8,6 +9,8 @@ const endExclusive = '2026-11-21';
 const cost = 0.0005;
 const absoluteResults=[];
 const researchInputs=[];
+const percentileRule={kind:'percentile',buy:0.2,sell:0.8};
+const tuningFields=['firstEligible','eligibleDays','eligibleSessions','fullSessions','duration','total','annual','drawdown','currentPosition','pending'];
 const days = (a,b) => (Date.parse(a)-Date.parse(b))/86400000;
 const iso = date => date.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
 const files = fs.readdirSync('work');
@@ -95,7 +98,7 @@ function run([name,index,code]) {
   });
   const lastSignal=signals.at(-1);
   const last=quotes.at(-1);
-  const result=simulatePe(rows,last.adjClose,lastSignal,endExclusive,cost,{kind:'percentile',buy:0.2,sell:0.8});
+  const result=simulatePe(rows,last.adjClose,lastSignal,endExclusive,cost,percentileRule);
   assert.equal(result.trades.reduce((sum,t)=>sum+t.sessions,0),result.fullSessions);
   assert(result.duration<=result.eligibleDays&&result.eligibleSessions<=quotes.length);
   if(longWindow){
@@ -120,18 +123,21 @@ function run([name,index,code]) {
   }
   return {
     name,index,code, firstTrading:quotes[0].date,lastTrading:last.date,
-    ...(index==='000680.SH'?{peHistoryNote:'科创综指采用项目 6 收录的中证指数官方滚动 PE，序列始于 '+valuations[0].date+'。PE 分位须积累 240 个历史观测。'}:{}),
+    ...(index==='000680.SH'?{peHistoryNote:'科创综指采用项目 6 收录的中证指数官方滚动 PE，序列始于 '+valuations[0].date+'。'}:{}),
     availableDays:days(endExclusive,quotes[0].date),sessions:quotes.length,...result,lastSignal,weekly:[...weekly.values()]
   };
 }
 const result={start,end,endExclusive,cost,calendarDays:days(endExclusive,start),assets:assets.map(run)};
 if(longWindow){
   const trainStart='2016-01-01', testStart='2021-08-02', trainEnd='2021-01-01';
+  const lookbacks=Array.from({length:10},(_,i)=>i+1);
   const training=researchInputs.filter(a=>a.rows[0][0]<=trainStart);
   const evaluation=researchInputs.filter(a=>a.rows[0][0]<=testStart);
   const candidates=[3,5,10].flatMap(years=>[0.35,0.5].flatMap(buy=>[100,200].map(length=>({years,buy,length}))));
   for(const a of researchInputs){
-    a.ranks={3:a.ranks3,5:rollingRank(a.peHistory,5,240),10:a.ranks10};
+    a.ranks=Object.fromEntries(lookbacks.map(years=>[
+      years,years===3?a.ranks3:years===10?a.ranks10:rollingRank(a.peHistory,years,years===1?200:240)
+    ]));
     a.averages=new Map([100,200].map(length=>{
       let sum=0;
       const average=new Map();
@@ -157,13 +163,20 @@ if(longWindow){
     const m=simulatePe(rows,rows.at(-1)[8],a.lastSignal,until,cost,rule);
     return {annual:m.annual,drawdown:m.drawdown,holdAnnual:(1+m.hold)**(365.25/days(until,rows[0][0]))-1};
   }
+  function withLookback(a,years){
+    if(years===3) return a;
+    const byDate=new Map(a.peHistory.map((p,i)=>[p.date,a.ranks[years][i].rank]));
+    const rows=a.rows.map(([date,open,adjOpen,signal,pe,,...prices])=>
+      [date,open,adjOpen,signal,pe,byDate.get(signal)??null,...prices]);
+    return {rows,lastSignal:{...a.lastSignal,rank:byDate.get(a.lastSignal.date)??null}};
+  }
   for(const c of candidates){
     const returns=training.map(a=>evaluate(a,trendRule(a,c),trainStart,trainEnd).annual).sort((a,b)=>a-b);
     c.score=quantile(returns,0.5);
   }
   const chosen=candidates.sort((a,b)=>b.score-a.score)[0];
   result.strategies=[
-    {id:'percentile',name:'策略1-PE分位',summary:'滚动三年 PE 分位 ≤20% 满仓买入，≥80% 清仓。'},
+    {id:'percentile',name:'策略1-PE分位',defaultLookback:3},
     {id:'absolute',name:'策略2-PE绝对值',summary:'各指数近二十年日度 PE 的第 20、80 百分位作固定倍数。PE ≤买入倍数时满仓，≥卖出倍数时清仓。',results:absoluteResults},
     {id:'trend',name:'策略3-估值与趋势',summary:'每周复核。滚动 '+chosen.years+' 年 PE 分位 ≤'+Math.round(chosen.buy*100)+'% 且收盘高于 '+chosen.length+' 日均线时满仓，PE 分位 ≥90% 或收盘低于均线 3% 时清仓。',
       results:researchInputs.map(a=>({code:a.code,...simulatePe(a.rows,a.rows.at(-1)[8],a.lastSignal,endExclusive,cost,trendRule(a,chosen))}))},
@@ -172,9 +185,59 @@ if(longWindow){
     const pe=a.peHistory.filter(p=>p.date>=start&&p.date<trainEnd).map(p=>p.value).sort((a,b)=>a-b);
     const absolute=pe.length>=240?evaluate(a,{kind:'absolute',buy:quantile(pe,0.2),sell:quantile(pe,0.8)},testStart,endExclusive):null;
     return {name:a.name,code:a.code,absolute,
-      percentile:evaluate(a,{kind:'percentile',buy:0.2,sell:0.8},testStart,endExclusive),
+      percentile:evaluate(a,percentileRule,testStart,endExclusive),
       trend:evaluate(a,trendRule(a,chosen),testStart,endExclusive)};
   })};
+  result.tuningFields=tuningFields;
+  if(process.argv.includes('--tuning')){
+    const dir='work/site/tuning';
+    fs.mkdirSync(dir,{recursive:true});
+    function sample(a,cutoff,years){
+      const from=new Date(cutoff+'T00:00:00Z');
+      from.setUTCFullYear(from.getUTCFullYear()-years);
+      const floor=from.toISOString().slice(0,10);
+      const sample=a.peHistory.filter(p=>p.date>=floor&&p.date>=start&&p.date<cutoff);
+      return {
+        start:sample[0]?.date,end:sample.at(-1)?.date,
+        values:sample.map(p=>p.value).sort((x,y)=>x-y),
+      };
+    }
+    for(const mode of ['percentile','absolute']) for(let years=1;years<=(mode==='percentile'?10:20);years++){
+      const inputs=researchInputs.map(a=>{
+        const {rows,lastSignal}=mode==='percentile'?withLookback(a,years):a;
+        const heldout=rows.filter(r=>r[0]>=testStart);
+        return {rows,lastSignal,heldout,fullSample:mode==='absolute'?sample(a,endExclusive,years):null,
+          frozen:mode==='absolute'?sample(a,trainEnd,years):null,
+          tradeIndex:new Map(),trades:[],variants:[]};
+      });
+      for(let buy=0;buy<100;buy+=5) for(let sell=buy+5;sell<=100;sell+=5){
+        for(const input of inputs){
+          const {rows,lastSignal,heldout,fullSample,frozen,tradeIndex,trades,variants}=input;
+          const b=buy/100,s=sell/100;
+          const rule=fullSample?{kind:mode,buy:quantile(fullSample.values,b),sell:quantile(fullSample.values,s)}
+            :{kind:mode,buy:b,sell:s};
+          const m=simulatePe(rows,rows.at(-1)[8],lastSignal,endExclusive,cost,rule);
+          const rounds=m.trades.map(t=>{
+            const key=JSON.stringify(t);
+            if(!tradeIndex.has(key)){tradeIndex.set(key,trades.length);trades.push(t);}
+            return tradeIndex.get(key);
+          });
+          let test=null;
+          if(heldout.length&&(!frozen||frozen.values.length>=(years===1?200:240))){
+            const heldoutRule=frozen?{kind:mode,buy:quantile(frozen.values,b),sell:quantile(frozen.values,s)}:rule;
+            const metric=simulatePe(heldout,heldout.at(-1)[8],lastSignal,endExclusive,cost,heldoutRule);
+            test=[metric.annual,metric.drawdown];
+          }
+          variants.push([tuningFields.map(k=>m[k]),rounds,test,fullSample?[rule.buy,rule.sell]:null]);
+        }
+      }
+      const chunk=inputs.map(({lastSignal,fullSample,trades,variants})=>({
+        lastSignal,trades,variants,sample:fullSample?[fullSample.start,fullSample.end,fullSample.values.length]:null,
+      }));
+      const packed=gzipSync(JSON.stringify(chunk),{level:9}).toString('base64');
+      fs.writeFileSync(dir+'/'+mode+'-'+years+'.js','window.PE_TUNING["'+mode+'-'+years+'"]='+JSON.stringify(packed)+';\n');
+    }
+  }
 }
 const slug=longWindow?'pe20':'pe10';
 fs.writeFileSync('work/site/'+slug+'-data.js','window.PE10 = '+JSON.stringify(result)+';\n');
