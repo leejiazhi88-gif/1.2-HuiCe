@@ -6,6 +6,8 @@
 
 [纯 PE 二十年图表](https://leejiazhi88-gif.github.io/1.2-HuiCe/pe20.html) 使用相同阈值，在 2006-11-21 至 2026-11-20 计算，覆盖九只 ETF。使用 `node research/pe10.cjs --20` 生成。补充输入包括此前 ETF 日线与复权因子、对应的历史指数 PE；以 `pe20-{接口名}-{TS代码}-{起始年}.json` 存入 `work/`。图表还读取全区间 `index_daily` 的 `trade_date,open,close`，输出周度曲线和信号、成交日点位。将[项目 6 的科创综指官方 PE](https://github.com/leejiazhi88-gif/6-Bili-xiaodeng/blob/main/work/star_official_history.json)保存为 `work/pe20-p6-star-official.json`。
 
+二十年页面顶部可切换滚动 PE 分位、全样本固定 PE 倍数、估值加趋势。固定倍数用日度 PE 的线性插值百分位，主图使用整个可用样本，后段检验用 2020 年末前的数据固定阈值。估值加趋势在 2016–2020 年按训练年化收益中位数从 12 个候选中选规则，2021-08-02 起单独检验。成交与收益通用引擎位于 `research/pe20-engine.cjs`。
+
 ## 数据与复现
 
 页面提供模拟结果及口径。回测引擎位于 `research/build.cjs`。运行时，从工作目录下的 `work/` 读取以下 JSON，生成 `work/site/results.js`。原始行情请使用已授权的数据源获取。

@@ -1,14 +1,17 @@
 'use strict';
 (() => {
-  const {assets,start,end,endExclusive}=window.PE10;
+  const {assets,strategies,study,start,end,endExclusive}=window.PE10;
   const get=id=>document.getElementById(id);
   const select=get('chartAsset');
   const range=get('chartRange');
+  const strategySelect=get('strategySelect');
+  strategySelect.innerHTML=strategies.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
+  let strategy=strategies[0], active=assets;
   const canvases=[get('pointsChart'),get('peChart'),get('rankChart'),get('closeRankChart')];
   const columns=[1,2,3,5];
   const fmt=new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
   select.innerHTML=assets.map((a,i)=>'<option value="'+i+'">'+a.name+' · '+a.code.split('.')[0]+'</option>').join('');
-  const asset=()=>assets[Number(select.value)];
+  const asset=()=>active[Number(select.value)];
   const markers=()=>asset().trades.flatMap((t,i)=>[
     {trade:t.buy,buy:true,round:i},...(t.sell?[{trade:t.sell,buy:false,round:i}]:[])
   ]);
@@ -47,6 +50,15 @@
       const n=lo+(hi-lo)*i/4, yy=y(n);
       ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();
       ctx.fillText(rankPlot?Math.round(n*100)+'%':Math.round(n).toLocaleString('zh-CN'),left-7,yy+4);
+    }
+    if(metric===2&&a.thresholds){
+      ctx.setLineDash([5,4]);
+      for(const [value,color] of [[a.thresholds.buy,'#79d8b0'],[a.thresholds.sell,'#f59a93']]){
+        if(value<lo||value>hi) continue;
+        const yy=y(value);
+        ctx.strokeStyle=color;ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();
+      }
+      ctx.setLineDash([]);
     }
     const startYear=Number(begin.slice(0,4));
     const endYear=Number(end.slice(0,4));
@@ -126,7 +138,9 @@
     if(m){
       const t=m.trade;
       const key=asset().code.split('.')[0]+'-'+m.round;
-      get('markerInfo').innerHTML='<strong style="color:'+paint(m)+'">'+(m.buy?'买入':'卖出')+'信号 '+t.signal+'</strong> · 指数收盘 '+fmt.format(t.signalClose)+' 点 · PE '+fmt.format(t.pe)+' 倍 · 三年分位 '+fmt.format(t.rank*100)+'%<br>成交 '+t.date+' · 指数开盘 '+fmt.format(t.indexOpen)+' 点 · ETF 开盘 '+t.open.toFixed(3)+' 元 · <a href="#trades" data-trade="'+key+'">查看本轮明细</a>';
+      const context=t.average?' · '+study.chosen.years+' 年分位 '+fmt.format(t.rank*100)+'% · 均线 '+fmt.format(t.average)+' 点'
+        :strategy.id==='percentile'?' · 三年分位 '+fmt.format(t.rank*100)+'%':'';
+      get('markerInfo').innerHTML='<strong style="color:'+paint(m)+'">'+(m.buy?'买入':'卖出')+'信号 '+t.signal+'</strong> · 指数收盘 '+fmt.format(t.signalClose)+' 点 · PE '+fmt.format(t.pe)+' 倍'+context+'<br>成交 '+t.date+' · 指数开盘 '+fmt.format(t.indexOpen)+' 点 · ETF 开盘 '+t.open.toFixed(3)+' 元 · <a href="#trades" data-trade="'+key+'">查看本轮明细</a>';
     } else {
       get('markerInfo').textContent='该 ETF 在可执行区间内没有成交记录。';
     }
@@ -138,6 +152,10 @@
     const note=get('peHistoryNote');
     note.textContent=a.peHistoryNote||'';
     note.hidden=!a.peHistoryNote;
+    get('strategySummary').textContent=strategy.summary;
+    const t=a.thresholds;
+    get('strategyDetail').textContent=t?a.name+' · PE ≤ '+fmt.format(t.buy)+' 倍买入，≥ '+fmt.format(t.sell)+' 倍卖出。样本 '+t.start+' 至 '+t.end+'（'+t.observations+' 日）。固定阈值使用全样本，含回测时点之后的数据。'
+      :strategy.id==='trend'?'训练期 2016–2020 年，后段独立检验。下方可对比三套策略。':'分位每天按当时可得的历史重新计算。';
     begin=range.value==='active'?(firstSignal<a.firstEligible?firstSignal:a.firstEligible):start;
     visible=a.weekly.filter(r=>r[0]>=begin);
     cursor=visible.length-1;
@@ -145,6 +163,13 @@
     renderCursor();
   }
   select.addEventListener('change',()=>{picked=0;render();});
+  strategySelect.addEventListener('change',()=>{
+    strategy=strategies.find(s=>s.id===strategySelect.value);
+    active=strategy.results?assets.map((a,i)=>({...a,...strategy.results[i]})):assets;
+    picked=0;
+    window.dispatchEvent(new CustomEvent('pe-strategy-change',{detail:{assets:active,strategy}}));
+    render();
+  });
   range.addEventListener('change',render);
   get('markerChoices').addEventListener('click',e=>{
     const btn=e.target.closest('button');
@@ -193,5 +218,15 @@
     });
     new ResizeObserver(()=>draw(c,i)).observe(c);
   });
+  const percentage=x=>fmt.format(x*100)+'%';
+  const studyCell=r=>r?'<td>'+percentage(r.annual)+' <span class="date-extra">回撤 '+percentage(r.drawdown)+'</span></td>':'<td>样本不足</td>';
+  get('studyNote').textContent='用 2016–2020 年六只当时已有 ETF 的指数，从 12 套规则中按年化收益中位数选策略 3。下表检验 '+study.testStart+' 至 '+study.end+'，各策略从空仓起步，持有基准首日买入。策略 2 在这里用 2020 年底前的 PE 固定阈值。';
+  const lowerRisk=study.rows.filter(r=>r.trend.drawdown<r.percentile.drawdown).length;
+  const higherReturn=study.rows.filter(r=>r.trend.annual>r.percentile.annual).length;
+  get('studyResult').textContent='对比策略 1，策略 3 的最大回撤更小有 '+lowerRisk+' / '+study.rows.length+' 只，年化收益更高有 '+higherReturn+' / '+study.rows.length+' 只。';
+  get('studyTable').innerHTML='<thead><tr><th scope="col">指数</th><th scope="col">策略 1 年化</th><th scope="col">策略 2 年化</th><th scope="col">策略 3 年化</th><th scope="col">买入持有年化</th></tr></thead><tbody>'+
+    study.rows.map(r=>'<tr><th scope="row">'+r.name+'</th>'+studyCell(r.percentile)+studyCell(r.absolute)+studyCell(r.trend)+'<td>'+percentage(r.trend.holdAnnual)+'</td></tr>').join('')+'</tbody>';
+  get('candidateTable').innerHTML='<thead><tr><th scope="col">PE 观察期</th><th scope="col">买入分位上限</th><th scope="col">指数均线</th><th scope="col">训练年化中位数</th></tr></thead><tbody>'+
+    study.candidates.map((c,i)=>'<tr'+(i===0?' class="primary"':'')+'><td>'+c.years+' 年</td><td>'+percentage(c.buy)+'</td><td>'+c.length+' 日</td><td>'+percentage(c.score)+'</td></tr>').join('')+'</tbody>';
   render();
 })();

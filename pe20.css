@@ -4,3 +4,7 @@
 .plot-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px 10px}
 .plot-head strong{font-size:.94rem;font-variant-numeric:tabular-nums;color:var(--ink)}
 .dual-chart canvas{cursor:crosshair}
+.strategy-bar{display:grid;grid-template-columns:auto 1fr;align-items:start;gap:16px;margin:18px 0 0;padding:14px 16px;background:var(--panel);border:1px solid var(--edge);border-radius:8px}
+.strategy-bar p{margin:0}.strategy-bar .muted{margin-top:3px}
+.strategy-bar select{border-color:var(--gold)}
+@media(max-width:660px){.strategy-bar{grid-template-columns:1fr;gap:8px}}
