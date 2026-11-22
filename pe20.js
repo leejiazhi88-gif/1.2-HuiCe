@@ -8,6 +8,11 @@
   strategySelect.innerHTML=strategies.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
   let strategy=strategies[0], active=assets;
   const lookback=get('lookbackYears'), buySlider=get('buyPercent'), sellSlider=get('sellPercent');
+  const sliders=[
+    {input:lookback,field:'years',output:get('lookbackValue'),unit:' 年'},
+    {input:buySlider,field:'buy',output:get('buyValue'),unit:'%'},
+    {input:sellSlider,field:'sell',output:get('sellValue'),unit:'%'},
+  ].map(slider=>({...slider,buttons:[...slider.input.parentElement.querySelectorAll('button')]}));
   const defaults={percentile:{years:strategies[0].defaultLookback,buy:20,sell:80},absolute:{years:20,buy:20,sell:80}};
   const settings=structuredClone(defaults);
   const applied={
@@ -17,7 +22,7 @@
   window.PE_TUNING={};
   const downloads=new Map();
   let request=0;
-  const status=message=>{get('tuneStatus').textContent=message;get('tuneStatus').hidden=!message;};
+  const status=message=>{get('tuneStatus').textContent=message;};
   const equal=(a,b)=>a.years===b.years&&a.buy===b.buy&&a.sell===b.sell;
   function loadTuning(key){
     if(!downloads.has(key)){
@@ -50,16 +55,34 @@
     const max=strategy.id==='absolute'?20:10;
     get('lookbackLabel').textContent=strategy.id==='absolute'?'PE 取样期':'PE 回看期';
     lookback.max=String(max);
-    get('lookbackMax').textContent=max+' 年';
     lookback.value=config.years;
     buySlider.value=config.buy;
     sellSlider.value=config.sell;
-    get('lookbackValue').textContent=config.years+' 年';
-    get('buyValue').textContent=config.buy+'%';
-    get('sellValue').textContent=config.sell+'%';
-    lookback.setAttribute('aria-valuetext',config.years+' 年');
-    buySlider.setAttribute('aria-valuetext',config.buy+'%');
-    sellSlider.setAttribute('aria-valuetext',config.sell+'%');
+    showSliderValues(config);
+  }
+  function showSliderValues(config){
+    for(const {input,field,output,unit,buttons} of sliders){
+      const value=config[field];
+      output.value=value+unit;
+      input.setAttribute('aria-valuetext',output.value);
+      const min=field==='sell'?config.buy+5:Number(input.min);
+      const max=field==='buy'?config.sell-5:Number(input.max);
+      buttons[0].disabled=value<=min;
+      buttons[1].disabled=value>=max;
+    }
+  }
+  function readSliders(changed){
+    const config={years:Number(lookback.value),buy:Number(buySlider.value),sell:Number(sellSlider.value)};
+    if(config.buy>=config.sell){
+      if(changed===buySlider) config.buy=config.sell-5;
+      else config.sell=config.buy+5;
+    }
+    return config;
+  }
+  function commitSliders(changed){
+    settings[strategy.id]=readSliders(changed);
+    showControls();
+    applyTuning();
   }
   function showResults(){
     const selected=applied[strategy.id];
@@ -99,17 +122,14 @@
       status('载入失败，已保留上一次的结果。请再调一次。');
     }
   }
-  for(const slider of [lookback,buySlider,sellSlider]){
-    slider.addEventListener('input',()=>{
-      const current={years:Number(lookback.value),buy:Number(buySlider.value),sell:Number(sellSlider.value)};
-      if(current.buy>=current.sell){
-        if(slider===buySlider) current.buy=current.sell-5;
-        else current.sell=current.buy+5;
-      }
-      settings[strategy.id]=current;
-      showControls();
-      applyTuning();
-    });
+  for(const {input,field,buttons} of sliders){
+    input.addEventListener('input',()=>showSliderValues(readSliders(input)));
+    input.addEventListener('change',()=>commitSliders(input));
+    buttons.forEach(button=>button.addEventListener('click',()=>{
+      const value=readSliders(input)[field];
+      input.value=value+Number(button.dataset.step)*Number(input.step);
+      commitSliders(input);
+    }));
   }
   const canvases=[get('pointsChart'),get('peChart'),get('rankChart'),get('closeRankChart')];
   const columns=[1,2,3,5];
@@ -248,6 +268,10 @@
     } else {
       get('markerInfo').textContent='该 ETF 在可执行区间内没有成交记录。';
     }
+  }
+  function selectMarker(index){
+    picked=index;
+    renderMarkers();
     canvases.forEach(draw);
   }
   function render(){
@@ -279,8 +303,7 @@
   get('markerChoices').addEventListener('click',e=>{
     const btn=e.target.closest('button');
     if(!btn) return;
-    picked=Number(btn.dataset.marker);
-    renderMarkers();
+    selectMarker(Number(btn.dataset.marker));
     get('markerChoices').children[picked].focus({preventScroll:true});
   });
   get('markerInfo').addEventListener('click',e=>{
@@ -319,7 +342,7 @@
         const delta=Math.hypot(e.offsetX-p.px,e.offsetY-p.py);
         if(delta<closest){closest=delta;index=j;}
       });
-      if(index>=0){picked=index;renderMarkers();}
+      if(index>=0) selectMarker(index);
     });
     new ResizeObserver(()=>draw(c,i)).observe(c);
   });

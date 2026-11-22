@@ -6,10 +6,10 @@
 <title>二十年 ETF 策略回测 · 指数点位与买卖信号</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="pe10.css">
-<link rel="stylesheet" href="pe20.css?v=6">
+<link rel="stylesheet" href="pe20.css?v=7">
 <script defer src="pe20-data.js?v=6"></script>
 <script defer src="pe10.js?v=6"></script>
-<script defer src="pe20.js?v=6"></script>
+<script defer src="pe20.js?v=7"></script>
 </head>
 <body>
 <header><div class="shell bar"><a href="index.html">宽基 ETF <small> / 价值投资回测</small></a><nav><a href="#charts">策略与图表</a><a href="#exposure">满仓与收益</a><a href="#comparison">后段检验</a></nav></div></header>
@@ -20,17 +20,29 @@
   <div id="lookbackControl">
     <div>
       <label for="lookbackYears"><span id="lookbackLabel">PE 回看期</span> <output id="lookbackValue" for="lookbackYears">3 年</output></label>
-      <div class="lookback-slider"><span>1 年</span><input id="lookbackYears" type="range" min="1" max="10" step="1" value="3"><span id="lookbackMax">10 年</span></div>
+      <div class="lookback-slider">
+        <button type="button" data-step="-1" aria-label="年限减少 1 年">−</button>
+        <input id="lookbackYears" type="range" min="1" max="10" step="1" value="3">
+        <button type="button" data-step="1" aria-label="年限增加 1 年">+</button>
+      </div>
     </div>
     <div>
       <label for="buyPercent">买入分位 <output id="buyValue" for="buyPercent">20%</output></label>
-      <div class="lookback-slider"><span>0%</span><input id="buyPercent" type="range" min="0" max="95" step="5" value="20"><span>95%</span></div>
+      <div class="lookback-slider">
+        <button type="button" data-step="-1" aria-label="买入分位降低 5 个百分点">−</button>
+        <input id="buyPercent" type="range" min="0" max="95" step="5" value="20">
+        <button type="button" data-step="1" aria-label="买入分位提高 5 个百分点">+</button>
+      </div>
     </div>
     <div>
       <label for="sellPercent">卖出分位 <output id="sellValue" for="sellPercent">80%</output></label>
-      <div class="lookback-slider"><span>5%</span><input id="sellPercent" type="range" min="5" max="100" step="5" value="80"><span>100%</span></div>
+      <div class="lookback-slider">
+        <button type="button" data-step="-1" aria-label="卖出分位降低 5 个百分点">−</button>
+        <input id="sellPercent" type="range" min="5" max="100" step="5" value="80">
+        <button type="button" data-step="1" aria-label="卖出分位提高 5 个百分点">+</button>
+      </div>
     </div>
-    <p id="tuneStatus" role="status" class="muted" hidden></p>
+    <p id="tuneStatus" role="status" class="muted"></p>
   </div>
 </div>
 <section class="hero">
