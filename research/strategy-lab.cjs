@@ -62,10 +62,10 @@ function monthRule(data,decide){
 const direction=(on,detail)=>({buy:on,sell:!on,detail});
 const momentum=(months,q,i,n)=>i<n?null:q.value/months[i-n].value-1;
 const spec=[
-  {id:'faber',name:'策略4-十月均线',source:sources.faber,options:[{}],
-    summary:()=> '每月底收盘达到过去 10 个月的月末收盘均线就持有，低于均线转现金。',
-    rule:a=>monthRule(a,(q,i,months)=>i<9?null:direction(q.value>=mean(months,i,10),fmt('十月均线',mean(months,i,10),'点')))},
-  {id:'momentum',name:'策略5-时序动量',source:sources.momentum,options:[{months:12}],
+  {id:'faber',name:'策略4-月线均线',source:sources.faber,options:[6,10,12].map(months=>({months})),
+    summary:c=> '每月底收盘达到过去 '+c.months+' 个月的月末收盘均线就持有，低于均线转现金。',
+    rule:(a,c)=>monthRule(a,(q,i,months)=>i<c.months-1?null:direction(q.value>=mean(months,i,c.months),fmt(c.months+' 月均线',mean(months,i,c.months),'点')))},
+  {id:'momentum',name:'策略5-时序动量',source:sources.momentum,options:[6,9,12].map(months=>({months})),
     summary:c=>'每月底看过去 '+c.months+' 个月指数涨跌。上涨则持有，下跌或持平则转现金。',
     rule:(a,c)=>monthRule(a,(q,i,months)=>{
       const m=momentum(months,q,i,c.months);

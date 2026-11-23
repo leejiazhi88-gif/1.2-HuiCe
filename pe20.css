@@ -9,6 +9,10 @@
 .strategy-bar select{border-color:var(--gold)}
 #lookbackControl{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:10px 18px}
 #lookbackControl[hidden]{display:none}
+#macdControl{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px 16px}
+#macdControl[hidden]{display:none}
+#macdControl select{min-width:0;max-width:100%;border-color:var(--edge)}
+#macdControl label{flex-wrap:wrap}
 #lookbackControl output{color:var(--gold);font-weight:700}
 #tuneStatus{grid-column:1/-1;min-height:1.6em}
 .lookback-slider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.82rem}

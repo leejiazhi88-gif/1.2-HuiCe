@@ -35,7 +35,14 @@
     {input:buySlider,field:'buy',output:get('buyValue'),unit:'%'},
     {input:sellSlider,field:'sell',output:get('sellValue'),unit:'%'},
   ].map(slider=>({...slider,buttons:[...slider.input.parentElement.querySelectorAll('button')]}));
-  const defaults={percentile:{years:strategies[0].defaultLookback,buy:20,sell:80},absolute:{years:20,buy:20,sell:80}};
+  const defaults={percentile:strategies[0].defaultConfig,absolute:strategies[1].defaultConfig};
+  const macdStrategy=strategies.find(s=>s.id==='macd');
+  const macdSelects={cadence:get('macdCadence'),method:get('macdMethod'),period:get('macdPeriod')};
+  for(const [field,options] of Object.entries({cadence:macdStrategy.frequencies,method:macdStrategy.methods,period:Object.fromEntries(macdStrategy.periods.map(x=>[x,x]))})){
+    macdSelects[field].innerHTML=Object.entries(options).map(([value,name])=>'<option value="'+value+'">'+name+'</option>').join('');
+  }
+  let macdSelection=macdStrategy.defaultIndex;
+  let macdApplied={index:macdSelection,summary:macdStrategy.summary,results:macdStrategy.results};
   const settings=structuredClone(defaults);
   const applied={
     percentile:{config:defaults.percentile,assets},
@@ -73,6 +80,11 @@
   function showControls(){
     const config=settings[strategy.id];
     get('lookbackControl').hidden=!config;
+    get('macdControl').hidden=strategy.id!=='macd';
+    if(strategy.id==='macd'){
+      const macdConfig=macdStrategy.options[macdSelection];
+      for(const [field,input] of Object.entries(macdSelects)) input.value=macdConfig[field];
+    }
     if(!config) return;
     const max=strategy.id==='absolute'?20:10;
     get('lookbackLabel').textContent=strategy.id==='absolute'?'PE 取样期':'PE 回看期';
@@ -108,14 +120,48 @@
   }
   function showResults(){
     const selected=applied[strategy.id];
-    active=selected?selected.assets:assets.map((a,i)=>({...a,...strategy.results[i]}));
+    const results=strategy.id==='macd'?macdApplied.results:strategy.results;
+    active=selected?selected.assets:assets.map((a,i)=>({...a,...results[i]}));
     const config=selected?.config;
-    const name=config?strategy.name+'（'+config.years+'年 '+config.buy+'% / '+config.sell+'%）':strategy.name;
+    const name=config?strategy.name+'（'+config.years+'年 '+config.buy+'% / '+config.sell+'%）'
+      :strategy.id==='macd'?strategy.name+'（'+macdLabel()+'）':strategy.name;
     picked=0;
     window.dispatchEvent(new CustomEvent('pe-strategy-change',{detail:{assets:active,strategy:{id:strategy.id,name}}}));
     renderStudy();
     render();
   }
+  function macdLabel(){
+    const config=macdStrategy.options[macdApplied.index];
+    return macdStrategy.frequencies[config.cadence]+' · '+config.period+' · '+macdStrategy.methods[config.method];
+  }
+  async function applyMacd(){
+    const index=macdSelection, revision=++request;
+    if(index===macdApplied.index){status('');return;}
+    if(index===macdStrategy.defaultIndex){
+      macdApplied={index,summary:macdStrategy.summary,results:macdStrategy.results};
+      status('');
+      showResults();
+      return;
+    }
+    status('正在载入 MACD 回测结果…');
+    try{
+      const variants=await loadTuning('macd');
+      if(revision!==request) return;
+      const variant=variants[index];
+      macdApplied={index,summary:variant.summary,results:variant.results,test:new Map(variant.test)};
+      status('');
+      showResults();
+    }catch{
+      if(revision!==request) return;
+      macdSelection=macdApplied.index;
+      showControls();
+      status('载入失败，已保留上一次的 MACD 结果。请再选一次。');
+    }
+  }
+  for(const input of Object.values(macdSelects)) input.addEventListener('change',()=>{
+    macdSelection=macdStrategy.options.findIndex(config=>Object.entries(macdSelects).every(([field,element])=>config[field]===element.value));
+    applyMacd();
+  });
   async function applyTuning(){
     const mode=strategy.id, config=settings[mode], revision=++request;
     if(!config||equal(config,applied[mode].config)){status('');return;}
@@ -307,10 +353,12 @@
     note.hidden=!a.peHistoryNote;
     const config=applied[strategy.id]?.config;
     get('strategySummary').textContent=strategy.id==='percentile'?'滚动 '+config.years+' 年 PE 分位 ≤'+config.buy+'% 满仓买入，≥'+config.sell+'% 清仓。'
-      :strategy.id==='absolute'?'用近 '+config.years+' 年日度 PE 的第 '+config.buy+'、'+config.sell+' 百分位定倍数。低于或等于买入倍数时满仓，高于或等于卖出倍数时清仓。':strategy.summary;
+      :strategy.id==='absolute'?'用近 '+config.years+' 年日度 PE 的第 '+config.buy+'、'+config.sell+' 百分位定倍数。低于或等于买入倍数时满仓，高于或等于卖出倍数时清仓。'
+      :strategy.id==='macd'?macdApplied.summary:strategy.summary;
     const t=a.thresholds;
     get('strategyDetail').textContent=t?a.name+' · PE ≤ '+fmt.format(t.buy)+' 倍买入，≥ '+fmt.format(t.sell)+' 倍卖出。样本 '+t.start+' 至 '+t.end+'（'+t.observations+' 日）。固定阈值使用全样本，含回测时点之后的数据。'
-      :strategy.id==='patient'?'训练期 2016–2020 年，从 24 个候选中按平均年化收益选规则。看下方后段和成本检验。'
+      :strategy.id==='patient'?'按九只 ETF 全窗口平均年化，从 24 个候选中选出。'
+      :strategy.id==='macd'?'DIF 为快 EMA 减慢 EMA，DEA 为 DIF 的 EMA。'
       :strategy.id==='percentile'?'分位每天按当时可得的历史重新计算。':'';
     const source=get('strategySource');
     source.hidden=!strategy.source;
@@ -326,7 +374,8 @@
     strategy=strategies.find(s=>s.id===strategySelect.value);
     showControls();
     showResults();
-    applyTuning();
+    if(strategy.id==='macd') applyMacd();
+    else applyTuning();
   });
   range.addEventListener('change',render);
   get('markerChoices').addEventListener('click',e=>{
@@ -379,12 +428,13 @@
   const percentage=x=>fmt.format(x*100)+'%';
   const studyCell=(r,winner)=>r?'<td'+(winner?' class="primary"':'')+'>'+percentage(r.annual)+' <span class="date-extra">回撤 '+percentage(r.drawdown)+'</span></td>':'<td>样本不足</td>';
   const shortLabel=s=>s.name.replace(/^策略(\d+)-/,'$1 · ');
-  get('studyNote').textContent='用 2016–2020 年已有的 6 只 ETF 比较候选规则，使用 '+study.testStart+' 至 '+study.end+' 做后段历史复核。策略 2 在后段用 2020 年底前的数据固定阈值。各策略从空仓起步，买入持有基准首日买入。';
+  get('studyNote').textContent='各策略默认参数按九只 ETF 各自可交易期的年化收益取等权算术平均，从已测试组合中选出。'+study.testStart+' 至 '+study.end+' 为后段历史复核，属于参数选取已覆盖的行情。策略 2 在后段用 2020 年底前的数据固定 PE 阈值。';
   function renderStudy(){
     const rows=study.rows.map(r=>{
       const i=assets.findIndex(a=>a.code===r.code);
       return {...r,percentile:applied.percentile.test?applied.percentile.test[i]:r.percentile,
-        absolute:applied.absolute.test?applied.absolute.test[i]:r.absolute};
+        absolute:applied.absolute.test?applied.absolute.test[i]:r.absolute,
+        macd:macdApplied.test?.get(r.code)??r.macd};
     });
     const common=rows.filter(r=>r.absolute);
     const describe=mode=>{
@@ -393,7 +443,7 @@
     };
     const averages=s=>common.reduce((n,r)=>n+r[s.id].annual,0)/common.length;
     const leader=common.length?[...strategies].sort((a,b)=>averages(b)-averages(a))[0]:null;
-    const portfolios=strategies.map(s=>applied[s.id]?.assets??s.results);
+    const portfolios=strategies.map(s=>s.id==='macd'?macdApplied.results:applied[s.id]?.assets??s.results);
     get('studyResult').textContent=leader?'按当前参数，'+common.length+' 只可比 ETF 中，'+leader.name+'的平均年化最高（'+percentage(averages(leader))+'）。'
       :'当前参数下策略 2 的校准样本不足。下方逐指数结果仍可查看。';
     const summaries=strategies.map((s,j)=>{
@@ -408,7 +458,7 @@
         (j>1?(beats.join('、')||'—'):'基准')+'</td><td>'+(j>1?(common.length?lowerDrawdowns+' / '+common.length:'—'):'基准')+'</td><td>'+(j>1?(fullWins.join('、')||'—'):'基准')+'</td></tr>';
     });
     get('strategyScores').innerHTML='<thead><tr><th scope="col">策略</th><th scope="col">后段平均年化</th><th scope="col">后段平均回撤</th><th scope="col">2021–2023 年化（默认）</th><th scope="col">后段年化超 1、2</th><th scope="col">后段回撤小于 1、2</th><th scope="col">全窗口累计超 1、2</th></tr></thead><tbody>'+summaries.join('')+'</tbody>';
-    get('studyTable').innerHTML='<thead><tr><th scope="col">指数</th>'+strategies.map(s=>'<th scope="col">'+shortLabel(s)+(applied[s.id]?'<span class="date-extra">'+describe(s.id)+'</span>':'')+'</th>').join('')+'<th scope="col">最高年化策略</th><th scope="col">买入持有年化</th></tr></thead><tbody>'+
+    get('studyTable').innerHTML='<thead><tr><th scope="col">指数</th>'+strategies.map(s=>'<th scope="col">'+shortLabel(s)+(applied[s.id]?'<span class="date-extra">'+describe(s.id)+'</span>':s.id==='macd'?'<span class="date-extra">'+macdLabel()+'</span>':'')+'</th>').join('')+'<th scope="col">最高年化策略</th><th scope="col">买入持有年化</th></tr></thead><tbody>'+
       rows.map(r=>{
         const winner=[...strategies].filter(s=>r[s.id]).sort((a,b)=>r[b.id].annual-r[a.id].annual)[0];
         return '<tr><th scope="row">'+r.name+'</th>'+strategies.map(s=>studyCell(r[s.id],winner===s)).join('')+'<td>'+shortLabel(winner)+'</td><td>'+percentage(r.patient.holdAnnual)+'</td></tr>';
@@ -422,9 +472,14 @@
       }).join('')+'</tbody>';
   }
   const candidateRow=(name,c,i)=>'<tr'+(i===0?' class="primary"':'')+'><th scope="row">'+name+'</th><td>'+c.summary+'</td><td>'+percentage(c.score)+'</td></tr>';
-  get('studyCandidates').innerHTML='<thead><tr><th scope="col">策略</th><th scope="col">规则</th><th scope="col">2016–2020 平均年化</th></tr></thead><tbody>'+
+  get('studyCandidates').innerHTML='<thead><tr><th scope="col">策略</th><th scope="col">规则</th><th scope="col">全窗口平均年化</th></tr></thead><tbody>'+
+    strategies.slice(0,2).map(s=>{
+      const c=s.defaultConfig;
+      return candidateRow(s.name,{score:s.defaultScore,summary:c.years+' 年 / 买入 '+c.buy+'% / 卖出 '+c.sell+'%'},0);
+    }).join('')+
     study.patientCandidates.map((c,i)=>candidateRow(strategies[2].name,{score:c.score,summary:'PE 回看 '+c.years+' 年 / 买入 '+percentage(c.buy)+' / '+c.length+' 日均线 / 极高分位 '+percentage(c.hardExit)},i)).join('')+
-    study.lab.map((lab,i)=>lab.candidates.map((c,j)=>candidateRow('<a href="'+strategies[i+3].source[1]+'">'+strategies[i+3].name+'</a>',c,j)).join('')).join('')+'</tbody>';
+    study.lab.map((lab,i)=>lab.candidates.map((c,j)=>candidateRow('<a href="'+strategies[i+3].source[1]+'">'+strategies[i+3].name+'</a>',c,j)).join('')).join('')+
+    study.macdCandidates.map((c,i)=>candidateRow('<a href="'+macdStrategy.source[1]+'">'+macdStrategy.name+'</a>',c,i)).join('')+'</tbody>';
   get('studyChecks').innerHTML='<thead><tr><th scope="col">区间</th><th scope="col">单边成本</th>'+
     strategies.map((_,i)=>'<th scope="col">策略 '+(i+1)+'</th>').join('')+'</tr></thead><tbody>'+
     study.checks.map(r=>'<tr><th scope="row">'+r.label+'<span class="date-extra">'+r.from+' 至 '+r.through+'</span></th><td>'+percentage(r.fee)+'</td>'+

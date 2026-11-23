@@ -6,10 +6,10 @@
 <title>二十年 ETF 策略回测 · 指数点位与买卖信号</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="pe10.css">
-<link rel="stylesheet" href="pe20.css?v=10">
-<script defer src="pe20-data.js?v=9"></script>
+<link rel="stylesheet" href="pe20.css?v=11">
+<script defer src="pe20-data.js?v=11"></script>
 <script defer src="pe10.js?v=10"></script>
-<script defer src="pe20.js?v=10"></script>
+<script defer src="pe20.js?v=11"></script>
 </head>
 <body>
 <header><div class="shell bar"><a href="index.html">宽基 ETF <small> / 价值投资回测</small></a><nav><a href="#returns">策略收益</a><a href="#market-charts">指数图表</a><a href="#exposure">满仓时间</a></nav></div></header>
@@ -46,8 +46,13 @@
         <button type="button" data-step="1" aria-label="卖出分位提高 5 个百分点">+</button>
       </div>
     </div>
-    <p id="tuneStatus" role="status" class="muted"></p>
   </div>
+  <div id="macdControl" hidden>
+    <label>K 线周期<select id="macdCadence"></select></label>
+    <label>买卖条件<select id="macdMethod"></select></label>
+    <label>快线 / 慢线 / 信号线<select id="macdPeriod"></select></label>
+  </div>
+  <p id="tuneStatus" role="status" class="muted"></p>
 </div>
 <section id="returns">
 <h2>策略收益</h2>
@@ -94,17 +99,17 @@
 <h2>策略对比</h2>
 <p class="muted" id="studyNote"></p>
 <p id="studyResult"></p>
-<div class="table-wrap" tabindex="0" aria-label="十套策略后段汇总"><table id="strategyScores"></table></div>
+<div class="table-wrap" tabindex="0" aria-label="十一套策略后段汇总"><table id="strategyScores"></table></div>
 <h3>逐指数后段年化与回撤</h3>
-<div class="table-wrap" tabindex="0" aria-label="十套策略逐指数年化收益和回撤"><table id="studyTable"></table></div>
+<div class="table-wrap" tabindex="0" aria-label="十一套策略逐指数年化收益和回撤"><table id="studyTable"></table></div>
 <details>
 <summary>逐指数全窗口累计收益</summary>
 <p class="muted">每只 ETF 用自身可交易的历史。此表沿用策略 2 主图的全样本阈值，阈值包含回测早期之后的数据。</p>
-<div class="table-wrap" tabindex="0" aria-label="九只ETF十套策略累计收益"><table id="fullStudyTable"></table></div>
+<div class="table-wrap" tabindex="0" aria-label="九只ETF十一套策略累计收益"><table id="fullStudyTable"></table></div>
 </details>
 <details open>
 <summary>默认参数的分段与交易成本检验</summary>
-<p class="muted">使用默认参数下十套策略都有结果的 7 只 ETF。分别计算每只 ETF 的年化后取平均，每段独立从现金开始。</p>
+<p class="muted">使用默认参数下十一套策略都可比较的 ETF。分别计算每只 ETF 的年化后取平均，每段独立从现金开始。</p>
 <div class="table-wrap" tabindex="0" aria-label="默认参数分段与交易成本检验"><table id="studyChecks"></table></div>
 </details>
 <details><summary>查看候选规则和研究来源</summary>
@@ -113,10 +118,11 @@
 </section>
 <section id="method" hidden>
 <h2>回测口径</h2>
+<p>每套策略在所测试的参数里，取九只 ETF 各自全可交易期年化收益的算术平均最高者作为默认。每只 ETF 权重相同，起始日期和历史长度各自不同。默认参数使用了全回测窗口的结果，后段表属于历史复核。</p>
 <p>策略 1 的滚动分位使用当时可取得的历史，1 年窗口至少需要 200 个观测，2–10 年窗口至少需要 240 个。策略 2 主图从回测截止日往前取样来固定阈值，可能包含早期买卖信号之后的数据；后段检验用相同年数从 2020 年末往前取样。买卖分位均以 5 个百分点为一档。</p>
 <p>图中标记使用触发当日的指数收盘与 PE。成交明细同时给出下一可交易日指数开盘和 ETF 开盘。最大回撤用日收盘净值计算。</p>
 <p>策略日终判断、下一可交易日开盘模拟成交。收益使用 ETF 复权行情，单边成本 0.05%，现金收益为零。上市以前可以查看指数图，策略从该 ETF 的可执行期开始。历史估值使用供应商现有序列，可能有事后修订。 <a href="https://tushare.pro/document/2?doc_id=95">指数点位来源</a> · <a href="https://tushare.pro/document/2?doc_id=128">估值来源</a></p>
-<p>策略 4–10 借鉴文献，在这里统一改成用指数信号在对应 ETF 与现金之间切换。文献原有的做空、杠杆、期货、跨资产配置和仓位缩放都不参与本页回测。</p>
+<p>策略 4–11 借鉴文献，采用指数信号在对应 ETF 多头与现金之间切换。MACD 的 DIF 是快、慢 EMA 之差，DEA 是 DIF 的 EMA。周线和月线各取周期最后一个交易日确认信号。</p>
 <p>项目 1 的上证综指、深证成指分别对应富国 510210、南方 159903。项目 6 的科创综指对应华夏 589000，使用项目 6 收录的中证指数官方滚动 PE。 <a href="https://github.com/leejiazhi88-gif/1-BigA-total">项目 1</a> · <a href="https://github.com/leejiazhi88-gif/6-Bili-xiaodeng">项目 6</a></p>
 <div class="table-wrap" tabindex="0" aria-label="ETF覆盖期"><table id="coverage"></table></div>
 </section>

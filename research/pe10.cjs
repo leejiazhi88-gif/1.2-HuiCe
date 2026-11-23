@@ -3,12 +3,12 @@ const assert = require('node:assert/strict');
 const {gzipSync}=require('node:zlib');
 const simulatePe = require('./pe20-engine.cjs');
 const lab=require('./strategy-lab.cjs');
+const macd=require('./macd.cjs');
 const longWindow = process.argv.includes('--20');
 const start = longWindow ? '2006-11-21' : '2016-11-21';
 const end = '2026-11-20';
 const endExclusive = '2026-11-21';
 const cost = 0.0005;
-const absoluteResults=[];
 const researchInputs=[];
 const percentileRule={kind:'percentile',buy:0.2,sell:0.8};
 const tuningFields=['firstEligible','eligibleDays','eligibleSessions','fullSessions','duration','total','annual','drawdown','currentPosition','pending'];
@@ -104,14 +104,6 @@ function run([name,index,code]) {
   assert(result.duration<=result.eligibleDays&&result.eligibleSessions<=quotes.length);
   if(longWindow){
     for(const row of rows) if(row[4]!==null) assert(row[6]>0&&row[7]>0,'Index point missing '+index+' '+row[0]);
-    const sample=valuations.filter(v=>v.date>=start);
-    const sorted=sample.map(v=>v.pe).sort((a,b)=>a-b);
-    const buy=quantile(sorted,0.2),sell=quantile(sorted,0.8);
-    assert(buy>0&&sell>buy);
-    const thresholds={buy,sell,start:sample[0].date,end:sample.at(-1).date,observations:sample.length};
-    const absolute=simulatePe(rows,last.adjClose,lastSignal,endExclusive,cost,{kind:'absolute',buy,sell});
-    assert(absolute.duration<=absolute.eligibleDays&&absolute.eligibleSessions<=quotes.length);
-    absoluteResults.push({code, thresholds, ...absolute});
     const withPriceSignal=(row,signal)=>{
       assert(signal?.value>0&&row[7]>0,'Index quote missing '+index+' '+row[0]);
       return [...row.slice(0,3),signal.date,valuationByDay.get(signal.date)?.pe??null,null,signal.value,...row.slice(7)];
@@ -121,14 +113,17 @@ function run([name,index,code]) {
       while(closes[priceCursor+1]?.date<row[0]) priceCursor++;
       return withPriceSignal(row,closes[priceCursor]);
     });
-    const monthEnds=closes.filter((q,i)=>q.date.slice(0,7)!==closes[i+1]?.date.slice(0,7));
-    let monthCursor=-1;
-    const monthRows=rows.map(row=>{
-      const currentMonth=row[0].slice(0,7);
-      while(monthEnds[monthCursor+1]?.date.slice(0,7)<currentMonth) monthCursor++;
-      return withPriceSignal(row,monthEnds[monthCursor]);
-    });
-    researchInputs.push({name,code,rows,priceRows,monthRows,lastSignal,peHistory,closes,ranks3,ranks10});
+    function periodRows(key){
+      const ends=closes.filter((q,i)=>!closes[i+1]||key(q.date)!==key(closes[i+1].date));
+      let cursor=-1;
+      return rows.map(row=>{
+        while(ends[cursor+1]&&key(ends[cursor+1].date)<key(row[0])) cursor++;
+        return withPriceSignal(row,ends[cursor]);
+      });
+    }
+    const monthRows=periodRows(date=>date.slice(0,7));
+    const weekRows=periodRows(macd.week);
+    researchInputs.push({name,code,rows,priceRows,monthRows,weekRows,lastSignal,peHistory,closes,ranks3,ranks10});
   }
   const weekly = new Map();
   for(const [date,row] of indexDays){
@@ -146,9 +141,8 @@ function run([name,index,code]) {
 }
 const result={start,end,endExclusive,cost,calendarDays:days(endExclusive,start),assets:assets.map(run)};
 if(longWindow){
-  const trainStart='2016-01-01', testStart='2021-08-02', trainEnd='2021-01-01';
+  const testStart='2021-08-02', trainEnd='2021-01-01';
   const lookbacks=Array.from({length:10},(_,i)=>i+1);
-  const training=researchInputs.filter(a=>a.rows[0][0]<=trainStart);
   const evaluation=researchInputs.filter(a=>a.rows[0][0]<=testStart);
   for(const a of researchInputs){
     a.ranks=Object.fromEntries(lookbacks.map(years=>[
@@ -174,7 +168,8 @@ if(longWindow){
     });
     return {kind:'trend',buy:c.buy,sell:0.9,trend};
   }
-  const rowsFor=(a,rule)=>rule.flags?(rule.cadence==='month'?a.monthRows:a.priceRows):a.rows;
+  const rowsFor=(a,rule)=>rule.flags?(rule.cadence==='month'?a.monthRows:rule.cadence==='week'?a.weekRows:a.priceRows):a.rows;
+  const average=results=>results.reduce((sum,m)=>sum+m.annual,0)/results.length;
   function evaluate(a,rule,from,until,fee=cost){
     const rows=rowsFor(a,rule).filter(r=>r[0]>=from&&r[0]<until);
     const m=simulatePe(rows,rows.at(-1)[8],a.lastSignal,until,fee,rule);
@@ -188,11 +183,70 @@ if(longWindow){
       [date,open,adjOpen,signal,pe,byDate.get(signal)??null,...prices]);
     return {rows,lastSignal:{...a.lastSignal,rank:byDate.get(a.lastSignal.date)??null}};
   }
+  function sample(a,cutoff,years){
+    const from=new Date(cutoff+'T00:00:00Z');
+    from.setUTCFullYear(from.getUTCFullYear()-years);
+    const floor=from.toISOString().slice(0,10);
+    const selected=a.peHistory.filter(p=>p.date>=floor&&p.date>=start&&p.date<cutoff);
+    return {start:selected[0]?.date,end:selected.at(-1)?.date,values:selected.map(p=>p.value).sort((x,y)=>x-y)};
+  }
+  const absoluteRule=(sample,buy,sell)=>({kind:'absolute',buy:quantile(sample.values,buy),sell:quantile(sample.values,sell)});
+  const emitTuning=process.argv.includes('--tuning');
+  const tuningDir='work/site/tuning';
+  fs.mkdirSync(tuningDir,{recursive:true});
+  function writeTuning(key,data){
+    const packed=gzipSync(JSON.stringify(data),{level:9}).toString('base64');
+    fs.writeFileSync(tuningDir+'/'+key+'.js','window.PE_TUNING['+JSON.stringify(key)+']='+JSON.stringify(packed)+';\n');
+  }
+  const bestPe={};
+  for(const mode of ['percentile','absolute']) for(let years=1;years<=(mode==='percentile'?10:20);years++){
+    const inputs=researchInputs.map(a=>{
+      const {rows,lastSignal}=mode==='percentile'?withLookback(a,years):a;
+      return {code:a.code,rows,lastSignal,heldout:rows.filter(r=>r[0]>=testStart),
+        fullSample:mode==='absolute'?sample(a,endExclusive,years):null,
+        frozen:mode==='absolute'?sample(a,trainEnd,years):null,
+        tradeIndex:new Map(),trades:[],variants:[]};
+    });
+    for(let buy=0;buy<100;buy+=5) for(let sell=buy+5;sell<=100;sell+=5){
+      const staged=inputs.map(input=>{
+        const {rows,lastSignal,fullSample}=input;
+        const rule=fullSample?absoluteRule(fullSample,buy/100,sell/100):{kind:mode,buy:buy/100,sell:sell/100};
+        return {rule, result:simulatePe(rows,rows.at(-1)[8],lastSignal,endExclusive,cost,rule)};
+      });
+      const score=average(staged.map(x=>x.result));
+      if(!bestPe[mode]||score>bestPe[mode].score){
+        bestPe[mode]={config:{years,buy,sell},score,results:staged.map(({rule,result},i)=>{
+          const {code,lastSignal,fullSample}=inputs[i];
+          const thresholds=fullSample?{buy:rule.buy,sell:rule.sell,start:fullSample.start,end:fullSample.end,observations:fullSample.values.length}:null;
+          return {code,lastSignal,...result,...(thresholds?{thresholds}:{})};
+        })};
+      }
+      if(emitTuning) inputs.forEach((input,i)=>{
+        const {lastSignal,heldout,fullSample,frozen,tradeIndex,trades,variants}=input;
+        const {rule,result:m}=staged[i];
+        const rounds=m.trades.map(t=>{
+          const key=JSON.stringify(t);
+          if(!tradeIndex.has(key)){tradeIndex.set(key,trades.length);trades.push(t);}
+          return tradeIndex.get(key);
+        });
+        let test=null;
+        if(heldout.length&&(!frozen||frozen.values.length>=(years===1?200:240))){
+          const heldoutRule=frozen?absoluteRule(frozen,buy/100,sell/100):rule;
+          const metric=simulatePe(heldout,heldout.at(-1)[8],lastSignal,endExclusive,cost,heldoutRule);
+          test=[metric.annual,metric.drawdown];
+        }
+        variants.push([tuningFields.map(k=>m[k]),rounds,test,fullSample?[rule.buy,rule.sell]:null]);
+      });
+    }
+    if(emitTuning) writeTuning(mode+'-'+years,inputs.map(({lastSignal,fullSample,trades,variants})=>({
+      lastSignal,trades,variants,sample:fullSample?[fullSample.start,fullSample.end,fullSample.values.length]:null,
+    })));
+  }
   const patientCandidates=[3,5,10].flatMap(years=>[0.20,0.35].flatMap(buy=>[100,200].flatMap(length=>
     [0.95,0.99].map(hardExit=>({years,buy,length,hardExit})))));
   const patientRule=(a,c)=>({...trendRule(a,c),kind:'patient',sell:0.8,hardExit:c.hardExit});
   for(const c of patientCandidates){
-    c.score=training.reduce((sum,a)=>sum+evaluate(a,patientRule(a,c),trainStart,trainEnd).annual,0)/training.length;
+    c.score=average(researchInputs.map(a=>evaluate(a,patientRule(a,c),start,endExclusive)));
   }
   patientCandidates.sort((a,b)=>b.score-a.score);
   const patient=patientCandidates[0];
@@ -200,19 +254,34 @@ if(longWindow){
   const selectedLab=lab.spec.map(spec=>{
     const candidates=spec.options.map(config=>{
       const rules=new Map(researchInputs.map(a=>[a.code,spec.rule(prepared.get(a.code),config)]));
-      const score=training.reduce((sum,a)=>sum+evaluate(a,rules.get(a.code),trainStart,trainEnd).annual,0)/training.length;
+      const score=average(researchInputs.map(a=>evaluate(a,rules.get(a.code),start,endExclusive)));
       return {rules,score,summary:spec.summary(config)};
     }).sort((a,b)=>b.score-a.score);
     return {id:spec.id,name:spec.name,source:spec.source,...candidates[0],
       candidates:candidates.map(({score,summary})=>({score,summary}))};
   });
+  const p1=bestPe.percentile.config,p2=bestPe.absolute.config;
+  const p1Rule={kind:'percentile',buy:p1.buy/100,sell:p1.sell/100};
+  const p1Inputs=new Map(researchInputs.map(a=>[a.code,withLookback(a,p1.years)]));
   const testAbsolute=a=>{
-    const pe=a.peHistory.filter(p=>p.date>=start&&p.date<trainEnd).map(p=>p.value).sort((a,b)=>a-b);
-    return pe.length>=240?{kind:'absolute',buy:quantile(pe,0.2),sell:quantile(pe,0.8)}:null;
+    const frozen=sample(a,trainEnd,p2.years);
+    return frozen.values.length>=(p2.years===1?200:240)?absoluteRule(frozen,p2.buy/100,p2.sell/100):null;
   };
+  const macdVariants=macd.options.map(config=>{
+    const rules=new Map(researchInputs.map(a=>[a.code,macd.rule(a.closes,config)]));
+    const results=researchInputs.map(a=>{
+      const rule=rules.get(a.code), rows=rowsFor(a,rule);
+      return {code:a.code,...simulatePe(rows,rows.at(-1)[8],a.lastSignal,endExclusive,cost,rule)};
+    });
+    const test=evaluation.map(a=>[a.code,evaluate(a,rules.get(a.code),testStart,endExclusive)]);
+    return {config,summary:macd.summary(config),rules,results,test,score:average(results)};
+  });
+  const macdIndex=macdVariants.reduce((best,x,i)=>x.score>macdVariants[best].score?i:best,0);
+  const macdDefault=macdVariants[macdIndex];
+  writeTuning('macd',macdVariants.map(({config,summary,results,test})=>({config,summary,results,test})));
   result.strategies=[
-    {id:'percentile',name:'策略1-PE分位',defaultLookback:3},
-    {id:'absolute',name:'策略2-PE绝对值',summary:'各指数近二十年日度 PE 的第 20、80 百分位作固定倍数。PE ≤买入倍数时满仓，≥卖出倍数时清仓。',results:absoluteResults},
+    {id:'percentile',name:'策略1-PE分位',defaultConfig:p1,defaultScore:bestPe.percentile.score},
+    {id:'absolute',name:'策略2-PE绝对值',defaultConfig:p2,defaultScore:bestPe.absolute.score,results:bestPe.absolute.results},
     {id:'patient',name:'策略3-低估买入、趋势卖出',lookback:patient.years,
       summary:'每周复核。滚动 '+patient.years+' 年 PE 分位 ≤'+Math.round(patient.buy*100)+'% 时满仓；分位 ≥80% 且收盘低于 '+patient.length+' 日均线时清仓，分位 ≥'+Math.round(patient.hardExit*100)+'% 时直接清仓。',
       results:researchInputs.map(a=>({code:a.code,...simulatePe(a.rows,a.rows.at(-1)[8],a.lastSignal,endExclusive,cost,patientRule(a,patient))}))},
@@ -221,15 +290,20 @@ if(longWindow){
         const rule=rules.get(a.code), rows=rowsFor(a,rule);
         return {code:a.code,...simulatePe(rows,rows.at(-1)[8],a.lastSignal,endExclusive,cost,rule)};
       })})),
+    {id:'macd',name:'策略11-K线战法（MACD）',source:macd.source,summary:macdDefault.summary,results:macdDefault.results,
+      defaultIndex:macdIndex,frequencies:macd.frequencies,methods:macd.methods,periods:macd.periods,options:macd.options},
   ];
-  result.study={trainStart,trainEnd,testStart,end,training:training.length,patientCandidates,patient,
+  result.assets=result.assets.map((a,i)=>({...a,...bestPe.percentile.results[i]}));
+  result.study={trainEnd,testStart,end,patientCandidates,patient,
+    macdCandidates:macdVariants.map(({score,summary})=>({score,summary})).sort((a,b)=>b.score-a.score),
     lab:selectedLab.map(({id,candidates})=>({id,candidates})),rows:evaluation.map(a=>{
     const fixed=testAbsolute(a);
     const absolute=fixed?evaluate(a,fixed,testStart,endExclusive):null;
     return {name:a.name,code:a.code,absolute,
-      percentile:evaluate(a,percentileRule,testStart,endExclusive),
+      percentile:evaluate(p1Inputs.get(a.code),p1Rule,testStart,endExclusive),
       patient:evaluate(a,patientRule(a,patient),testStart,endExclusive),
-      ...Object.fromEntries(selectedLab.map(m=>[m.id,evaluate(a,m.rules.get(a.code),testStart,endExclusive)]))};
+      ...Object.fromEntries(selectedLab.map(m=>[m.id,evaluate(a,m.rules.get(a.code),testStart,endExclusive)])),
+      macd:evaluate(a,macdDefault.rules.get(a.code),testStart,endExclusive)};
   })};
   const common=evaluation.filter(a=>testAbsolute(a));
   result.study.checks=[
@@ -239,10 +313,11 @@ if(longWindow){
     {label:'后段后半',from:'2024-01-01',until:endExclusive,fee:cost},
   ].map(({label,from,until,fee})=>{
     const rows=common.map(a=>[
-      evaluate(a,percentileRule,from,until,fee),
+      evaluate(p1Inputs.get(a.code),p1Rule,from,until,fee),
       evaluate(a,testAbsolute(a),from,until,fee),
       evaluate(a,patientRule(a,patient),from,until,fee),
       ...selectedLab.map(m=>evaluate(a,m.rules.get(a.code),from,until,fee)),
+      evaluate(a,macdDefault.rules.get(a.code),from,until,fee),
     ]);
     return {label,from,through:new Date(Date.parse(until)-86400000).toISOString().slice(0,10),fee,count:rows.length,
       metrics:rows[0].map((_,i)=>Object.fromEntries(['annual','drawdown','exposure','entries'].map(key=>[
@@ -250,55 +325,6 @@ if(longWindow){
       ])))};
   });
   result.tuningFields=tuningFields;
-  if(process.argv.includes('--tuning')){
-    const dir='work/site/tuning';
-    fs.mkdirSync(dir,{recursive:true});
-    function sample(a,cutoff,years){
-      const from=new Date(cutoff+'T00:00:00Z');
-      from.setUTCFullYear(from.getUTCFullYear()-years);
-      const floor=from.toISOString().slice(0,10);
-      const sample=a.peHistory.filter(p=>p.date>=floor&&p.date>=start&&p.date<cutoff);
-      return {
-        start:sample[0]?.date,end:sample.at(-1)?.date,
-        values:sample.map(p=>p.value).sort((x,y)=>x-y),
-      };
-    }
-    for(const mode of ['percentile','absolute']) for(let years=1;years<=(mode==='percentile'?10:20);years++){
-      const inputs=researchInputs.map(a=>{
-        const {rows,lastSignal}=mode==='percentile'?withLookback(a,years):a;
-        const heldout=rows.filter(r=>r[0]>=testStart);
-        return {rows,lastSignal,heldout,fullSample:mode==='absolute'?sample(a,endExclusive,years):null,
-          frozen:mode==='absolute'?sample(a,trainEnd,years):null,
-          tradeIndex:new Map(),trades:[],variants:[]};
-      });
-      for(let buy=0;buy<100;buy+=5) for(let sell=buy+5;sell<=100;sell+=5){
-        for(const input of inputs){
-          const {rows,lastSignal,heldout,fullSample,frozen,tradeIndex,trades,variants}=input;
-          const b=buy/100,s=sell/100;
-          const rule=fullSample?{kind:mode,buy:quantile(fullSample.values,b),sell:quantile(fullSample.values,s)}
-            :{kind:mode,buy:b,sell:s};
-          const m=simulatePe(rows,rows.at(-1)[8],lastSignal,endExclusive,cost,rule);
-          const rounds=m.trades.map(t=>{
-            const key=JSON.stringify(t);
-            if(!tradeIndex.has(key)){tradeIndex.set(key,trades.length);trades.push(t);}
-            return tradeIndex.get(key);
-          });
-          let test=null;
-          if(heldout.length&&(!frozen||frozen.values.length>=(years===1?200:240))){
-            const heldoutRule=frozen?{kind:mode,buy:quantile(frozen.values,b),sell:quantile(frozen.values,s)}:rule;
-            const metric=simulatePe(heldout,heldout.at(-1)[8],lastSignal,endExclusive,cost,heldoutRule);
-            test=[metric.annual,metric.drawdown];
-          }
-          variants.push([tuningFields.map(k=>m[k]),rounds,test,fullSample?[rule.buy,rule.sell]:null]);
-        }
-      }
-      const chunk=inputs.map(({lastSignal,fullSample,trades,variants})=>({
-        lastSignal,trades,variants,sample:fullSample?[fullSample.start,fullSample.end,fullSample.values.length]:null,
-      }));
-      const packed=gzipSync(JSON.stringify(chunk),{level:9}).toString('base64');
-      fs.writeFileSync(dir+'/'+mode+'-'+years+'.js','window.PE_TUNING["'+mode+'-'+years+'"]='+JSON.stringify(packed)+';\n');
-    }
-  }
 }
 const slug=longWindow?'pe20':'pe10';
 fs.writeFileSync('work/site/'+slug+'-data.js','window.PE10 = '+JSON.stringify(result)+';\n');
