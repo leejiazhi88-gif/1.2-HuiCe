@@ -6,14 +6,18 @@
 <title>二十年 ETF 策略回测 · 指数点位与买卖信号</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="pe10.css">
-<link rel="stylesheet" href="pe20.css?v=9">
+<link rel="stylesheet" href="pe20.css?v=10">
 <script defer src="pe20-data.js?v=9"></script>
-<script defer src="pe10.js?v=9"></script>
-<script defer src="pe20.js?v=9"></script>
+<script defer src="pe10.js?v=10"></script>
+<script defer src="pe20.js?v=10"></script>
 </head>
 <body>
-<header><div class="shell bar"><a href="index.html">宽基 ETF <small> / 价值投资回测</small></a><nav><a href="#charts">策略与图表</a><a href="#exposure">满仓与收益</a></nav></div></header>
+<header><div class="shell bar"><a href="index.html">宽基 ETF <small> / 价值投资回测</small></a><nav><a href="#returns">策略收益</a><a href="#market-charts">指数图表</a><a href="#exposure">满仓时间</a></nav></div></header>
 <main class="shell" id="charts">
+<section class="hero">
+<div><p class="eyebrow">九只宽基 ETF</p><h1>二十年买卖点</h1><p>沿着指数走势看每次触发时的点位、PE 和持仓时间。</p></div>
+<div class="stamp">二十年回测窗口<strong>2006-11-21 → 2026-11-20</strong></div>
+</section>
 <div class="strategy-bar">
   <label>买卖策略<select id="strategySelect"></select></label>
   <div><p id="strategySummary" aria-live="polite"></p><p id="strategyDetail" class="muted"></p><a id="strategySource" class="muted" hidden></a></div>
@@ -45,9 +49,9 @@
     <p id="tuneStatus" role="status" class="muted"></p>
   </div>
 </div>
-<section class="hero">
-<div><p class="eyebrow">九只宽基 ETF</p><h1>二十年买卖点</h1><p>沿着指数走势看每次触发时的点位、PE 和持仓时间。</p></div>
-<div class="stamp">二十年回测窗口<strong>2006-11-21 → 2026-11-20</strong></div>
+<section id="returns">
+<h2>策略收益</h2>
+<div class="table-wrap" tabindex="0" aria-label="九只 ETF 策略收益、回撤与买入持有对照"><table id="summary"></table></div>
 </section>
 <section id="market-charts">
 <div class="section-head"><h2>指数点位与 PE</h2><div class="controls trade-controls"><label>指数<select id="chartAsset"></select></label><label>图表范围<select id="chartRange"><option value="all">二十年</option><option value="active">可执行期</option></select></label></div></div>
@@ -70,11 +74,11 @@
 </div>
 </section>
 <section id="exposure">
-<h2>满仓时间与收益</h2>
+<h2>满仓时间</h2>
 <div class="legend"><span><i class="swatch holding"></i>满仓</span><span><i class="swatch cash"></i>空仓</span><span><i class="swatch unavailable"></i>未上市或估值预热</span></div>
 <div class="timeline" id="timeline"></div>
 <p class="muted">点击满仓区段可跳转到对应买卖记录。二十年占比分母统一为 7,305 个自然日。可执行期从 ETF 有实际行情且所选策略所需数据就绪时开始。</p>
-<div class="table-wrap" tabindex="0" aria-label="九只ETF持仓与收益对比"><table id="summary"></table></div>
+<div class="table-wrap" tabindex="0" aria-label="九只 ETF 满仓与交易统计"><table id="holdingSummary"></table></div>
 </section>
 <div class="module-controls" aria-label="展开回测详情">
   <button type="button" aria-controls="trades" aria-expanded="false">逐轮买卖明细</button>

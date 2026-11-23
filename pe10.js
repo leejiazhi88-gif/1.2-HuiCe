@@ -12,6 +12,11 @@ const metric=x=>Number.isFinite(x)?pct(x):'—';
 const header=fields=>'<thead><tr>'+fields.map(f=>'<th scope="col">'+f+'</th>').join('')+'</tr></thead>';
 const table=(id,fields,rows)=>{el(id).innerHTML=header(fields)+'<tbody>'+rows.join('')+'</tbody>';};
 const long=calendarDays>4000;
+const holdingFields=['满仓自然日',long?'占二十年':'占十年','占可执行期','完成轮次','期末仓位'];
+const returnFields=['策略累计收益',...(long?['策略年化','最大回撤']:[]),'买入持有'];
+const holdingCells=a=>'<td>'+a.duration+'</td><td class="primary">'+fraction(a.duration,calendarDays)+'</td><td>'+fraction(a.duration,a.eligibleDays)+'</td><td>'+a.trades.filter(t=>t.sell).length+'</td><td>'+(a.currentPosition?'100%':'0%')+'</td>';
+const returnCells=a=>'<td>'+signed(a.total)+'</td>'+(long?'<td>'+metric(a.annual)+'</td><td>'+metric(a.drawdown)+'</td>':'')+'<td>'+signed(a.hold)+'</td>';
+const resultRow=(a,cells)=>'<tr><th scope="row">'+title(a)+'</th>'+cells+'</tr>';
 const ticks=[[Number(start.slice(0,4)),0],...(long?[2010,2014,2018,2022,2026]:[2019,2021,2023,2025,2026]).map(year=>[year,offset(year+'-01-01')])];
 function renderResults(){
 el('timeline').innerHTML='<div class="timeline-row" aria-hidden="true"><span></span><div class="axis">'+ticks.map(([y,x])=>'<span style="left:'+x+'%">'+y+'</span>').join('')+'</div></div>'+assets.map(a=>
@@ -22,8 +27,12 @@ el('timeline').innerHTML='<div class="timeline-row" aria-hidden="true"><span></s
     const label=a.name+'，'+t.buy.date+' 买入，'+(t.sell?t.sell.date+' 卖出':'期末仍持有')+'，'+t.duration+' 天';
     return '<button type="button" class="holding" data-key="'+code(a)+'-'+i+'" style="left:'+left+'%;width:'+(right-left)+'%" aria-label="'+label+'" title="'+label+'"></button>';
   }).join('')+'</div><span class="share">'+fraction(a.duration,calendarDays)+'</span></div>').join('');
-table('summary',['指数 / ETF','满仓自然日',long?'占二十年':'占十年','占可执行期','完成轮次','期末仓位','策略累计收益',...(long?['策略年化','最大回撤']:[]),'买入持有'],assets.map(a=>
-  '<tr><th scope="row">'+title(a)+'</th><td>'+a.duration+'</td><td class="primary">'+fraction(a.duration,calendarDays)+'</td><td>'+fraction(a.duration,a.eligibleDays)+'</td><td>'+a.trades.filter(t=>t.sell).length+'</td><td>'+(a.currentPosition?'100%':'0%')+'</td><td>'+signed(a.total)+'</td>'+(long?'<td>'+metric(a.annual)+'</td><td>'+metric(a.drawdown)+'</td>':'')+'<td>'+signed(a.hold)+'</td></tr>'));
+if(el('holdingSummary')){
+  table('summary',['指数 / ETF',...returnFields],assets.map(a=>resultRow(a,returnCells(a))));
+  table('holdingSummary',['指数 / ETF',...holdingFields],assets.map(a=>resultRow(a,holdingCells(a))));
+}else{
+  table('summary',['指数 / ETF',...holdingFields,...returnFields],assets.map(a=>resultRow(a,holdingCells(a)+returnCells(a))));
+}
 table('coverage',['指数 / ETF','区间内首笔行情','策略可执行起点','可执行自然日','可执行交易日','满仓交易日'],assets.map(a=>
   '<tr><th scope="row">'+title(a)+'</th><td>'+a.firstTrading+'</td><td>'+a.firstEligible+'</td><td>'+a.eligibleDays+'</td><td>'+a.eligibleSessions+'</td><td>'+a.fullSessions+'</td></tr>'));
 renderTrades();

@@ -2,6 +2,11 @@
 (() => {
   const {assets,strategies,study,start,end,endExclusive,tuningFields}=window.PE10;
   const get=id=>document.getElementById(id);
+  const controls=document.querySelector('.strategy-bar');
+  new ResizeObserver(()=>{
+    const height=controls.getBoundingClientRect().height;
+    document.documentElement.style.scrollPaddingTop=Math.ceil(height+16)+'px';
+  }).observe(controls);
   const moduleButtons=new Map([...document.querySelectorAll('.module-controls button')].map(b=>[b.getAttribute('aria-controls'),b]));
   function showPanel(id,open){
     const button=moduleButtons.get(id);
