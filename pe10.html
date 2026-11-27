@@ -6,7 +6,7 @@
 <title>纯 PE 十年回测 · 满仓与清仓</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="pe10.css">
-<script defer src="pe10-data.js"></script>
+<script defer src="pe10-data.js?v=20261127"></script>
 <script defer src="pe10.js"></script>
 </head>
 <body>
@@ -14,7 +14,7 @@
 <main class="shell">
 <section class="hero">
 <div><p class="eyebrow">六只宽基 ETF · 纯 PE</p><h1>低估满仓，高估清仓</h1><p>空仓时，PE 分位进入最低 20% 就一次买满。持仓后，一直等到分位进入最高 20% 才全部卖出。</p></div>
-<div class="stamp">十年回测窗口<strong>2016-11-21 → 2026-11-20</strong></div>
+<div class="stamp">十年回测窗口<strong>2016-11-28 → 2026-11-27</strong></div>
 </section>
 <section id="exposure">
 <div class="section-head"><h2>十年里，有多久是满仓？</h2></div>
@@ -32,7 +32,7 @@
 <section id="method">
 <h2>计算口径</h2>
 <p>用对应指数的 PE(TTM)，比较当日数值在此前三年有效观测中的分位，至少需要 240 条数据，同值取中位。开始时持有现金。PE 分位 ≤20% 时满仓买入，持仓期间只在分位 ≥80% 时清仓，再等待下一轮。每日收盘后读取估值，按 ETF 下一可交易日开盘价模拟成交。</p>
-<p>持有天数从买入日计至卖出日前一天。期末持仓计至 2026-11-20，并按当日收盘价估值。ETF 收益使用复权行情模拟分红再投，单边成本 0.05%，现金收益为零，允许小数份额。买入持有基准从该 ETF 区间内首个开盘买入，均为历史行情模拟。历史估值保留供应商当前序列，可能存在事后修订。</p>
+<p>持有天数从买入日计至卖出日前一天。期末持仓计至 2026-11-27，并按当日收盘价估值。ETF 收益使用复权行情模拟分红再投，单边成本 0.05%，现金收益为零，允许小数份额。买入持有基准从该 ETF 区间内首个开盘买入，均为历史行情模拟。历史估值保留供应商当前序列，可能存在事后修订。</p>
 <p>中证1000按指定交易代码 159845，基金为华夏。科创50采用与上一页主回测一致的 Tushare PE(TTM) 序列。 <a href="https://www.szse.cn/disclosure/notice/fund/t20210326_585267.html">159845 上市通知</a> · <a href="https://www.sse.com.cn/disclosure/fund/announcement/c/2020-11-11/588000_20201111_2.pdf">588000 上市公告</a> · <a href="https://tushare.pro/document/2?doc_id=128">估值字段</a></p>
 <div class="table-wrap" tabindex="0" aria-label="ETF覆盖期"><table id="coverage"></table></div>
 </section>

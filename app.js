@@ -17,7 +17,7 @@ get('context').innerHTML=[
   contextCard('项目 1 · 沪深市场',sh.date+'，沪市 PE '+sh.pe.toFixed(2)+'、深市 PE '+sz.pe.toFixed(2)+'。提供市场宽口径估值、周度换手、ETF 申赎、政策事件和国家队持有人报告。','1-BigA-total'),
   contextCard('项目 2 · 全市场个股分布',context.market.date+'，个股 PE 中位数 '+context.market.pe+'，用于观察市场估值背景。','2-BigAtotal2'),
   contextCard('项目 2.2 · 行业背景',context.industry.date+'，申万电子 PE '+context.industry.pe+'，用于对照成长板块的行业估值。','2.2-quanlantu'),
-  contextCard('项目 6 · 成长指数',context.star.date+'，项目记录的科创50官方 PE 为 '+context.star.pe+'，与回测所用 Tushare PE(TTM) 属不同估值序列。项目同时提供创业板 PB 和创业板、科创50换手率。','6-Bili-xiaodeng')
+  contextCard('项目 6 · 成长指数',context.star.date+'，中证指数公布的科创综指滚动 PE 为 '+context.star.pe+'。项目同时提供创业板 PB 和创业板、科创50换手率。','6-Bili-xiaodeng')
 ].join('');
 get('legend').innerHTML=methods.map((name,i)=>'<label><input type="checkbox" value="'+i+'" '+(shown.has(i)?'checked':'')+'><span style="color:'+colors[i]+'">'+name+'</span></label>').join('');
 get('legend').addEventListener('change', e=>{

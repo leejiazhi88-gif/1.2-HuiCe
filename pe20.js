@@ -57,7 +57,7 @@
     if(!downloads.has(key)){
       downloads.set(key,new Promise((resolve,reject)=>{
         const script=document.createElement('script');
-        script.src='tuning/'+key+'.js?v=6';
+        script.src='tuning/'+key+'.js?v=20261127';
         script.onload=async()=>{
           script.remove();
           try{

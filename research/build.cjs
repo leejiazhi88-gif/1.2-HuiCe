@@ -23,7 +23,10 @@ const growth = read('p3-retail_index_metrics');
 const broad = read('p0-valuation_data');
 const growVal = read('p3-valuation_data');
 const pbGrowth = new Map(growVal.sh.map(x=>[x.date,x.pb]));
-const star = read('p3-star_official_history');
+const star = read('pe20-p6-star-official');
+const star50 = read('csi-star50-official');
+assert.equal(star.meta.tsCode,'000680.SH');
+assert.equal(star50.meta.tsCode,'000688.SH');
 const flow = sort(read('p0-etf_flow_data').series);
 const reports = read('p0-national_team_etf_history').reports;
 const archived = Object.values(read('p0-official_sentiment_events').quarters).flat();
@@ -63,7 +66,7 @@ function input(asset) {
     return {date:date(r.trade_date),open:r.open*factor,close:r.close*factor};
   });
   assert.equal(new Set(quotes.map(x=>x.date)).size,quotes.length);
-  assert.equal(quotes.at(-1).date,'2026-11-20');
+  assert.equal(quotes.at(-1).date,'2026-11-27');
   const val = history('val',idx,[2015,2019,2023]).map(r=>({date:date(r.trade_date),pe:r.pe_ttm,pb:pbGrowth.get(date(r.trade_date))>0 && name==='创业板指' ? pbGrowth.get(date(r.trade_date)) : r.pb})).filter(x=>x.pe>0&&x.pb>0);
   const mood = name==='创业板指' ? growth.sh : name==='科创50' ? growth.k50 : rp.series;
   const moodSeries = sort(mood.filter(x=>x.turnover>0));
@@ -146,15 +149,15 @@ for(const asset of assets){
   const {quotes,signals,val,first,latest,nationalEvents}=input(asset);
   assert(first<='2021-08-02');
   const periods=[
-    ['共同区间','2021-08-02','2026-11-20'],['前段','2021-08-02','2023-12-29'],
-    ['后段','2024-01-02','2026-11-20'],['各自最长',first,'2026-11-20']
+    ['共同区间','2021-08-02','2026-11-27'],['前段','2021-08-02','2023-12-29'],
+    ['后段','2024-01-02','2026-11-27'],['各自最长',first,'2026-11-27']
   ].map(([label,start,end])=>({
     label,start:quotes.find(x=>x.date>=start).date,end:quotes.findLast(x=>x.date<=end).date,
     rates:[0.0005,0.0015].map(fee=>methods.map((_,i)=>simulate(quotes,signals,start,end,i,fee)))
   }));
   if(asset[0]==='科创50'){
     const mainPE=new Map(val.map(x=>[x.date,x.pe]));
-    const official=sort(star.rows.filter(x=>x.pe>0&&mainPE.has(x.date)));
+    const official=sort(star50.rows.filter(x=>x.pe>0&&mainPE.has(x.date)));
     const alternative=new Map(official.slice(240).flatMap((r,i)=>{
       const original=signals.get(r.date);
       if(!original) return [];
